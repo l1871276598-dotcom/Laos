@@ -144,8 +144,12 @@ class LaosToolFacade:
         confidentiality="personal",
         project=None,
         tags=None,
-        confidence="provisional",
+        confidence="inferred",
         source="agent-mcp",
+        source_id=None,
+        source_path=None,
+        source_sha256=None,
+        evidence=None,
     ):
         if not isinstance(title, str) or not title.strip():
             raise ValueError("title must be a non-empty string")
@@ -169,6 +173,16 @@ class LaosToolFacade:
             candidate["project"] = project
         if tags is not None:
             candidate["tags"] = list(tags)
+        if source_id is not None:
+            candidate["source_id"] = source_id
+        if source_path is not None:
+            candidate["source_path"] = source_path
+        if source_sha256 is not None:
+            candidate["source_sha256"] = source_sha256
+        if evidence is not None:
+            candidate["evidence"] = list(evidence)
+        elif source_path is not None:
+            candidate["evidence"] = [f"file:{source_path}"]
 
         result = self.application.run(
             {"type": "memory.create", "workspace": workspace, "input": candidate}

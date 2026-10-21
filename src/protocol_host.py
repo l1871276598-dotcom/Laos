@@ -158,8 +158,12 @@ def build_protocol_host(facade, *, server_options=None):
         confidentiality: str = "personal",
         project: str | None = None,
         tags: list[str] | None = None,
-        confidence: str = "provisional",
+        confidence: str = "inferred",
         source: str = "agent-mcp",
+        source_id: str | None = None,
+        source_path: str | None = None,
+        source_sha256: str | None = None,
+        evidence: list[str] | None = None,
     ) -> dict:
         """Propose a new memory candidate (principle, decision, guideline) into LAOS staging.
 
@@ -177,6 +181,10 @@ def build_protocol_host(facade, *, server_options=None):
             tags=tags,
             confidence=confidence,
             source=source,
+            source_id=source_id,
+            source_path=source_path,
+            source_sha256=source_sha256,
+            evidence=evidence,
         )
 
     @host.tool()

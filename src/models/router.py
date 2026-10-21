@@ -105,6 +105,58 @@ class TokenLedger:
         with open(path, "a", encoding="utf-8") as f:
             f.write(line)
 
+    @staticmethod
+    def summarize_file(file_path: Path | str) -> Dict[str, Any]:
+        """Aggregate token ledger records into a financial summary dictionary."""
+        path = Path(file_path)
+        summary: Dict[str, Any] = {
+            "total_records": 0,
+            "total_prompt_tokens": 0,
+            "total_completion_tokens": 0,
+            "total_cache_read_tokens": 0,
+            "total_cost_usd": 0.0,
+            "models": {},
+        }
+        if not path.is_file():
+            return summary
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    record = json.loads(line)
+                    summary["total_records"] += 1
+                    usage = record.get("usage", {})
+                    pt = int(usage.get("prompt_tokens", 0))
+                    ct = int(usage.get("completion_tokens", 0))
+                    crt = int(usage.get("cache_read_tokens", 0))
+                    cost = float(record.get("cost_usd", 0.0))
+                    summary["total_prompt_tokens"] += pt
+                    summary["total_completion_tokens"] += ct
+                    summary["total_cache_read_tokens"] += crt
+                    summary["total_cost_usd"] += cost
+
+                    model = str(record.get("model", "unknown"))
+                    if model not in summary["models"]:
+                        summary["models"][model] = {
+                            "calls": 0,
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "cost_usd": 0.0,
+                        }
+                    summary["models"][model]["calls"] += 1
+                    summary["models"][model]["prompt_tokens"] += pt
+                    summary["models"][model]["completion_tokens"] += ct
+                    summary["models"][model]["cost_usd"] = round(
+                        summary["models"][model]["cost_usd"] + cost, 6
+                    )
+            summary["total_cost_usd"] = round(summary["total_cost_usd"], 6)
+        except Exception:
+            pass
+        return summary
+
+
 
 class ThompsonSampler:
     """Bayesian Multi-Armed Bandit for cost-adjusted model routing (Beta priors)."""

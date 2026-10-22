@@ -56,6 +56,33 @@ class Facade:
     def procedure_list(self, status="candidate"):
         return []
 
+    def procedure_review(self, proposal_id, action, reason=None):
+        return {"proposal_id": proposal_id, "action": action, "reason": reason}
+
+    def procedure_apply(self, proposal_id):
+        return {"applied": proposal_id}
+
+    def procedure_rollback(self, proposal_id):
+        return {"rolled_back": proposal_id}
+
+    def context_build(self, query, workspace, project=None, limit=8000):
+        return {"text": f"context for {query}", "workspace": workspace, "limit": limit}
+
+    def memory_create_candidate(self, **kwargs):
+        return {"candidate": kwargs}
+
+    def health(self):
+        return {"healthy": True}
+
+    def token_summary(self):
+        return {"total_records": 10, "total_cost_usd": 0.05}
+
+    def pattern_feedback(self, pattern_id, outcome, reason=None):
+        return {"pattern_id": pattern_id, "outcome": outcome, "reason": reason}
+
+    def pattern_list(self, keywords=None, top_k=10, min_confidence=0.5):
+        return [{"pattern_id": "p1", "name": "test pattern"}]
+
     def handoff_write(self, project_slug, content, *, workspace, expected_sha256=None):
         return {
             "project_slug": project_slug,
@@ -142,6 +169,53 @@ class ProtocolHostTests(unittest.TestCase):
             host = build_protocol_host(Facade(), server_options=options)
 
         self.assertEqual(host.options, options)
+
+    def test_all_new_mcp_tools_are_registered_and_delegate_properly(self):
+        with mock.patch.dict(sys.modules, mcp_modules()):
+            host = build_protocol_host(Facade(checkpoint_enabled=False))
+
+        expected_tools = [
+            "laos_task",
+            "laos_memory_search",
+            "laos_handoff_write",
+            "laos_session_search",
+            "laos_session_get",
+            "laos_procedure_list",
+            "laos_procedure_review",
+            "laos_procedure_apply",
+            "laos_procedure_rollback",
+            "laos_context_build",
+            "laos_memory_create_candidate",
+            "laos_health",
+            "laos_token_summary",
+            "laos_pattern_feedback",
+            "laos_pattern_list",
+        ]
+        for name in expected_tools:
+            self.assertIn(name, host.tools, f"Tool {name} should be registered in FastMCP host")
+
+        # Test context_build
+        ctx_tool = host.tools["laos_context_build"]
+        ctx_res = ctx_tool("search query", "personal", limit=5000)
+        self.assertEqual(ctx_res["text"], "context for search query")
+        self.assertEqual(ctx_res["limit"], 5000)
+
+        # Test memory_create_candidate
+        mem_tool = host.tools["laos_memory_create_candidate"]
+        mem_res = mem_tool("Rule 1", "Always follow rules", "personal")
+        self.assertEqual(mem_res["candidate"]["title"], "Rule 1")
+
+        # Test procedure tools
+        self.assertEqual(host.tools["laos_procedure_review"]("p1", "approved")["action"], "approved")
+        self.assertEqual(host.tools["laos_procedure_apply"]("p1")["applied"], "p1")
+        self.assertEqual(host.tools["laos_procedure_rollback"]("p1")["rolled_back"], "p1")
+
+        # Test health & telemetry & pattern tools
+        self.assertTrue(host.tools["laos_health"]()["healthy"])
+        self.assertEqual(host.tools["laos_token_summary"]()["total_cost_usd"], 0.05)
+        self.assertEqual(host.tools["laos_pattern_feedback"]("pat-1", "PASS")["outcome"], "PASS")
+        self.assertEqual(len(host.tools["laos_pattern_list"]()), 1)
+
 
 
 class HandoffToolContractTests(unittest.TestCase):

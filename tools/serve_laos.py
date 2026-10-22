@@ -12,6 +12,7 @@ for path in (ROOT, ROOT / "src"):
         sys.path.insert(0, str(path))
 
 from src.bridge import McpCheckpointCapture, build_bridge_pipeline
+from src.diagnostics.health import HealthCheck
 from src.laos import build_application
 from src.models import build_model_backend
 from src.procedures.manager import ProcedureManager
@@ -123,12 +124,19 @@ def build_facade(args):
         )
 
     application = build_application(args.data_root, args.state_dir, backend)
+    health_check = HealthCheck(args.data_root, args.state_dir)
+    token_ledger_path = Path(args.state_dir) / "telemetry" / "tokens.jsonl"
+    pattern_graph_path = Path(args.state_dir) / "learning" / "patterns.json"
+
     return LaosToolFacade(
         application,
         sessions=sessions,
         procedures=proposals,
         manager=ProcedureManager(args.data_root, proposals),
         checkpoint_capture=checkpoint_capture,
+        health_check=health_check,
+        token_ledger_path=token_ledger_path,
+        pattern_graph_path=pattern_graph_path,
     )
 
 

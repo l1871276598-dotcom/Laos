@@ -121,6 +121,68 @@ class ToolFacadeTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             facade.procedure_list()
 
+    def test_context_build_routes_and_validates(self):
+        class CtxApp:
+            def __init__(self):
+                self.tasks = []
+            def run(self, task):
+                self.tasks.append(task)
+                return {"output": {"text": "context_text", "sources": ["s1"], "used": 100}}
+
+        app = CtxApp()
+        facade = LaosToolFacade(app)
+        res = facade.context_build("query", "personal", project="p1", limit=4000)
+        self.assertEqual(res["text"], "context_text")
+        self.assertEqual(app.tasks[0]["type"], "context.build")
+        self.assertEqual(app.tasks[0]["workspace"], "personal")
+        self.assertEqual(app.tasks[0]["input"]["query"], "query")
+
+        with self.assertRaises(ValueError):
+            facade.context_build("", "personal")
+        with self.assertRaises(ValueError):
+            facade.context_build("q", "invalid_ws")
+        with self.assertRaises(ValueError):
+            facade.context_build("q", "personal", limit=-1)
+
+    def test_memory_create_candidate_routes(self):
+        class CandApp:
+            def __init__(self):
+                self.tasks = []
+            def run(self, task):
+                self.tasks.append(task)
+                return {"output": {"candidate_id": "cand-123", "status": "candidate"}}
+
+        app = CandApp()
+        facade = LaosToolFacade(app)
+        res = facade.memory_create_candidate(
+            title="Always Test",
+            content="Testing is good",
+            workspace="personal",
+            tags=["tdd", "code"],
+        )
+        self.assertEqual(res["candidate_id"], "cand-123")
+        self.assertEqual(app.tasks[0]["type"], "memory.create")
+        self.assertEqual(app.tasks[0]["input"]["title"], "Always Test")
+        self.assertEqual(app.tasks[0]["input"]["action"], "create")
+
+    def test_health_token_summary_and_patterns(self):
+        class MockHealth:
+            def run(self):
+                return {"healthy": True, "mock": True}
+
+        facade = LaosToolFacade(
+            Application(),
+            health_check=MockHealth(),
+            token_ledger_path="/nonexistent/tokens.jsonl",
+        )
+        self.assertTrue(facade.health()["healthy"])
+        summary = facade.token_summary()
+        self.assertEqual(summary["total_records"], 0)
+        self.assertEqual(summary["total_cost_usd"], 0.0)
+        patterns = facade.pattern_list()
+        self.assertEqual(patterns, [])
+
+
 
 if __name__ == "__main__":
     unittest.main()

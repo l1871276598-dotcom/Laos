@@ -109,6 +109,115 @@ def build_protocol_host(facade, *, server_options=None):
 
     @host.tool()
     def laos_procedure_list(status: str = "candidate") -> list[dict]:
+        """List procedure proposals filtered by status ('candidate', 'approved', 'rejected')."""
         return facade.procedure_list(status)
+
+    @host.tool()
+    def laos_procedure_review(
+        proposal_id: str,
+        action: str,
+        reason: str | None = None,
+    ) -> dict:
+        """Review a candidate procedure proposal, approving or rejecting it.
+
+        `action` must be 'approved' or 'rejected'.
+        """
+        return facade.procedure_review(proposal_id, action, reason)
+
+    @host.tool()
+    def laos_procedure_apply(proposal_id: str) -> dict:
+        """Apply an approved procedure proposal into the active system procedures."""
+        return facade.procedure_apply(proposal_id)
+
+    @host.tool()
+    def laos_procedure_rollback(proposal_id: str) -> dict:
+        """Roll back an applied procedure proposal."""
+        return facade.procedure_rollback(proposal_id)
+
+    @host.tool()
+    def laos_context_build(
+        query: str,
+        workspace: str,
+        project: str | None = None,
+        limit: int = 8000,
+    ) -> dict:
+        """Assemble prompt context from active memories and heuristic patterns under token budget.
+
+        Returns text, sources, limit, and used token/character counters.
+        `workspace` must be 'personal' or 'work'.
+        """
+        return facade.context_build(query, workspace, project=project, limit=limit)
+
+    @host.tool()
+    def laos_memory_create_candidate(
+        title: str,
+        content: str,
+        workspace: str,
+        type: str = "principle",
+        scope: str = "global",
+        confidentiality: str = "personal",
+        project: str | None = None,
+        tags: list[str] | None = None,
+        confidence: str = "inferred",
+        source: str = "agent-mcp",
+        source_id: str | None = None,
+        source_path: str | None = None,
+        source_sha256: str | None = None,
+        evidence: list[str] | None = None,
+    ) -> dict:
+        """Propose a new memory candidate (principle, decision, guideline) into LAOS staging.
+
+        Requires human or gate review before activation into long-term authority.
+        `workspace` must be 'personal' or 'work'.
+        """
+        return facade.memory_create_candidate(
+            title=title,
+            content=content,
+            workspace=workspace,
+            type=type,
+            scope=scope,
+            confidentiality=confidentiality,
+            project=project,
+            tags=tags,
+            confidence=confidence,
+            source=source,
+            source_id=source_id,
+            source_path=source_path,
+            source_sha256=source_sha256,
+            evidence=evidence,
+        )
+
+    @host.tool()
+    def laos_health() -> dict:
+        """Check LAOS backend health, index status, and directory permissions."""
+        return facade.health()
+
+    @host.tool()
+    def laos_token_summary() -> dict:
+        """Get the Token usage and financial expenditure summary across models."""
+        return facade.token_summary()
+
+    @host.tool()
+    def laos_pattern_feedback(
+        pattern_id: str,
+        outcome: str,
+        reason: str | None = None,
+    ) -> dict:
+        """Record execution feedback (PASS/FAIL) for a learned heuristic pattern.
+
+        Updates confidence and PageRank authority ranking deterministically.
+        """
+        return facade.pattern_feedback(pattern_id, outcome, reason=reason)
+
+    @host.tool()
+    def laos_pattern_list(
+        keywords: list[str] | None = None,
+        top_k: int = 10,
+        min_confidence: float = 0.5,
+    ) -> list[dict]:
+        """List top learned heuristic patterns ranked by PageRank, confidence, and keyword match."""
+        return facade.pattern_list(
+            keywords=keywords, top_k=top_k, min_confidence=min_confidence
+        )
 
     return host

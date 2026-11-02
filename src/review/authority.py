@@ -368,6 +368,7 @@ class AuthorityStore:
         self.activations = self.base / "activations"
         self.pending = self.base / "pending"
         self.generation_path = self.base / "generation.json"
+        self.distillation_checkpoint_path = self.base / "distillation_checkpoint.json"
         self.baseline_path = self.base / "baseline_active.json"
         self.lock_path = self.base / "activation.lock"
         for directory in (self.base, self.decisions, self.activations, self.pending):
@@ -597,6 +598,82 @@ class AuthorityStore:
             self.generation_path,
             {"schema_version": 1, "active_generation": target},
         )
+
+    def get_distillation_checkpoint(self) -> dict:
+        if not self.distillation_checkpoint_path.exists():
+            current = self.current_generation()
+            return {
+                "schema_version": 1,
+                "interval": 20,
+                "last_distilled_generation": current,
+            }
+        raw = _safe_regular_bytes(self.distillation_checkpoint_path)
+        payload = _decode_canonical(raw, name="distillation checkpoint")
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version") != 1
+            or isinstance(payload.get("interval"), bool)
+            or not isinstance(payload.get("interval"), int)
+            or payload["interval"] <= 0
+            or isinstance(payload.get("last_distilled_generation"), bool)
+            or not isinstance(payload.get("last_distilled_generation"), int)
+            or payload["last_distilled_generation"] < 0
+        ):
+            raise AuthorityError(
+                "distillation_checkpoint_invalid", "distillation checkpoint is invalid"
+            )
+        return payload
+
+    def set_distillation_policy(
+        self, interval: int = 20, last_distilled_generation: int | None = None
+    ) -> dict:
+        if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
+            raise AuthorityError(
+                "distillation_policy_invalid", "distillation interval must be a positive integer"
+            )
+        if last_distilled_generation is None:
+            last_distilled_generation = self.current_generation()
+        elif (
+            isinstance(last_distilled_generation, bool)
+            or not isinstance(last_distilled_generation, int)
+            or last_distilled_generation < 0
+        ):
+            raise AuthorityError(
+                "distillation_policy_invalid",
+                "last_distilled_generation must be a non-negative integer",
+            )
+        checkpoint = {
+            "schema_version": 1,
+            "interval": interval,
+            "last_distilled_generation": last_distilled_generation,
+        }
+        _replace_canonical(self.distillation_checkpoint_path, checkpoint)
+        return copy.deepcopy(checkpoint)
+
+    def check_distillation_due(self) -> dict:
+        checkpoint = self.get_distillation_checkpoint()
+        current = self.current_generation()
+        last = checkpoint["last_distilled_generation"]
+        delta = max(0, current - last)
+        due = delta >= checkpoint["interval"]
+        return {
+            "due": due,
+            "current_generation": current,
+            "last_distilled_generation": last,
+            "delta": delta,
+            "interval": checkpoint["interval"],
+        }
+
+    def record_distillation_completed(self, generation: int | None = None) -> dict:
+        checkpoint = self.get_distillation_checkpoint()
+        target_gen = self.current_generation() if generation is None else generation
+        if isinstance(target_gen, bool) or not isinstance(target_gen, int) or target_gen < 0:
+            raise AuthorityError(
+                "distillation_policy_invalid", "generation must be a non-negative integer"
+            )
+        checkpoint["last_distilled_generation"] = target_gen
+        _replace_canonical(self.distillation_checkpoint_path, checkpoint)
+        return copy.deepcopy(checkpoint)
 
     @staticmethod
     def _decision_semantics(
@@ -1207,7 +1284,14 @@ class AuthorityStore:
             count += 1
         return count
 
-    def authorize_active_records(self, records, *, include_bindings=False):
+    def authorize_active_records(
+        self,
+        records,
+        *,
+        include_bindings: bool = False,
+        strict: bool = True,
+        quarantine_sink: list | None = None,
+    ):
         if not isinstance(include_bindings, bool):
             raise AuthorityError("visibility_invalid", "active record binding is invalid")
         if self.pending_count():
@@ -1215,7 +1299,7 @@ class AuthorityStore:
                 "activation_pending", "active visibility is blocked by pending activation"
             )
         baseline = self._baseline()["records"]
-        receipts = {}
+        receipt_items = []
         for path in self.activations.iterdir():
             if path.name.startswith(".tmp."):
                 continue
@@ -1223,13 +1307,24 @@ class AuthorityStore:
                 raise AuthorityError("activation_invalid", "activation namespace is invalid")
             decision_id = path.stem
             receipt = self._read_receipt(decision_id)
+            receipt_items.append(receipt)
+
+        receipt_items.sort(key=lambda r: r.get("active_generation", 0))
+
+        receipts = {}
+        for receipt in receipt_items:
             for memory_id, binding in receipt["authorized_records"].items():
                 existing = receipts.get(memory_id)
-                if existing is not None and existing["binding"] != binding:
+                if (
+                    existing is not None
+                    and existing.get("generation") == receipt.get("active_generation")
+                    and existing["binding"] != binding
+                ):
                     raise AuthorityError("activation_conflict", "active authorization conflicts")
                 receipts[memory_id] = {
                     "binding": binding,
                     "activation_id": receipt["activation_id"],
+                    "generation": receipt.get("active_generation"),
                 }
 
         authorized = []
@@ -1254,10 +1349,14 @@ class AuthorityStore:
                 continue
             receipt = receipts.get(memory_id)
             if receipt is None or receipt["binding"] != binding:
-                raise AuthorityError(
-                    "activation_receipt_missing",
-                    "active memory lacks a matching activation receipt",
-                )
+                if strict:
+                    raise AuthorityError(
+                        "activation_receipt_missing",
+                        "active memory lacks a matching activation receipt",
+                    )
+                if quarantine_sink is not None:
+                    quarantine_sink.append(record)
+                continue
             record["authority_receipt_id"] = receipt["activation_id"]
             if include_bindings:
                 record["authority_binding"] = {
@@ -1290,9 +1389,19 @@ class AuthorityMemoryStore:
     def reviewable(self, workspace=None, project=None, statuses=None):
         return self.store.reviewable(workspace, project, statuses)
 
-    def active_relevant(self, query, workspace=None, project=None, confidentiality=None):
+    def active_relevant(
+        self,
+        query,
+        workspace=None,
+        project=None,
+        confidentiality=None,
+        strict: bool = True,
+        quarantine_sink: list | None = None,
+    ):
         rows = self.store.active_relevant(query, workspace, project, confidentiality)
-        return self.authority.authorize_active_records(rows)
+        return self.authority.authorize_active_records(
+            rows, strict=strict, quarantine_sink=quarantine_sink
+        )
 
 
 __all__ = [

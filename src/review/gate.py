@@ -144,6 +144,7 @@ class ReviewGate:
             expected_active_generation,
             apply,
         )
+        distillation_status = self.authority_store.check_distillation_due()
         return {
             "status": receipt["status"],
             "activation_id": receipt["activation_id"],
@@ -154,6 +155,7 @@ class ReviewGate:
             "previous_generation": receipt["previous_generation"],
             "active_generation": receipt["active_generation"],
             "authorized_records": receipt["authorized_records"],
+            "meta_distillation_due": distillation_status["due"],
             "backend_status": backend_result.get("status")
             if isinstance(backend_result, dict)
             else None,

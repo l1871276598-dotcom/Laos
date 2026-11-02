@@ -52,6 +52,17 @@ class CheckpointCapture:
         return {"captured": values}
 
 
+class Optimizer:
+    def optimize(self, procedure_id_or_path, workspace="personal", dry_run=False, evaluator_models=None):
+        return {
+            "procedure_id": procedure_id_or_path,
+            "workspace": workspace,
+            "dry_run": dry_run,
+            "evaluator_models": evaluator_models,
+            "status": "candidate_created",
+        }
+
+
 class ToolFacadeTests(unittest.TestCase):
     def test_routes_to_native_services(self):
         facade = LaosToolFacade(
@@ -188,6 +199,39 @@ class ToolFacadeTests(unittest.TestCase):
         self.assertEqual(summary["total_cost_usd"], 0.0)
         patterns = facade.pattern_list()
         self.assertEqual(patterns, [])
+
+    def test_procedure_optimize_routes_and_validates(self):
+        facade = LaosToolFacade(
+            Application(),
+            optimizer=Optimizer(),
+        )
+        res = facade.procedure_optimize(
+            "procedure-123",
+            workspace="personal",
+            dry_run=True,
+            evaluator_models=["gpt-4o", "claude-3-5-sonnet"],
+        )
+        self.assertEqual(res["procedure_id"], "procedure-123")
+        self.assertEqual(res["workspace"], "personal")
+        self.assertTrue(res["dry_run"])
+        self.assertEqual(res["evaluator_models"], ["gpt-4o", "claude-3-5-sonnet"])
+
+        # Input validations
+        with self.assertRaises(ValueError):
+            facade.procedure_optimize("", "personal")
+        with self.assertRaises(ValueError):
+            facade.procedure_optimize("p1", "invalid_workspace")
+        with self.assertRaises(ValueError):
+            facade.procedure_optimize("p1", "personal", dry_run="not_a_bool")
+        with self.assertRaises(ValueError):
+            facade.procedure_optimize("p1", "personal", evaluator_models="not_a_list")
+        with self.assertRaises(ValueError):
+            facade.procedure_optimize("p1", "personal", evaluator_models=[""])
+
+        # Unavailable optimizer
+        empty_facade = LaosToolFacade(Application())
+        with self.assertRaises(RuntimeError):
+            empty_facade.procedure_optimize("p1", "personal")
 
 
 

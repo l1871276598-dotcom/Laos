@@ -122,6 +122,7 @@ class ToolFacadeTests(unittest.TestCase):
             facade.procedure_list()
 
     def test_context_build_routes_and_validates(self):
+        import tempfile
         class CtxApp:
             def __init__(self):
                 self.tasks = []
@@ -129,13 +130,19 @@ class ToolFacadeTests(unittest.TestCase):
                 self.tasks.append(task)
                 return {"output": {"text": "context_text", "sources": ["s1"], "used": 100}}
 
-        app = CtxApp()
-        facade = LaosToolFacade(app)
-        res = facade.context_build("query", "personal", project="p1", limit=4000)
-        self.assertEqual(res["text"], "context_text")
-        self.assertEqual(app.tasks[0]["type"], "context.build")
-        self.assertEqual(app.tasks[0]["workspace"], "personal")
-        self.assertEqual(app.tasks[0]["input"]["query"], "query")
+        with tempfile.TemporaryDirectory() as td:
+            ledger_file = Path(td) / "tokens.jsonl"
+            app = CtxApp()
+            facade = LaosToolFacade(app, token_ledger_path=ledger_file)
+            res = facade.context_build("query", "personal", project="p1", limit=4000)
+            self.assertEqual(res["text"], "context_text")
+            self.assertEqual(app.tasks[0]["type"], "context.build")
+            self.assertEqual(app.tasks[0]["workspace"], "personal")
+            self.assertEqual(app.tasks[0]["input"]["query"], "query")
+
+            summary = facade.token_summary()
+            self.assertEqual(summary["total_records"], 1)
+            self.assertEqual(summary["total_prompt_tokens"], 100)
 
         with self.assertRaises(ValueError):
             facade.context_build("", "personal")

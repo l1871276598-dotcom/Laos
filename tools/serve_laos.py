@@ -124,7 +124,8 @@ def build_facade(args):
         )
 
     application = build_application(args.data_root, args.state_dir, backend)
-    health_check = HealthCheck(args.data_root, args.state_dir)
+    backend_id = getattr(backend, "backend_id", "codex") if backend else "codex"
+    health_check = HealthCheck(args.data_root, args.state_dir, model_backend=backend_id)
     token_ledger_path = Path(args.state_dir) / "telemetry" / "tokens.jsonl"
     pattern_graph_path = Path(args.state_dir) / "learning" / "patterns.json"
 

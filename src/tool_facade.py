@@ -130,7 +130,25 @@ class LaosToolFacade:
             {"type": "context.build", "workspace": workspace, "input": values}
         )
         try:
-            return result["output"]
+            output = result["output"]
+            if self.token_ledger_path is not None and isinstance(output, dict):
+                used = output.get("used", 0)
+                if isinstance(used, int) and used > 0:
+                    try:
+                        from src.models.router import TokenLedger
+                    except ImportError:
+                        from models.router import TokenLedger
+                    entry = TokenLedger.create_entry(
+                        task_id=f"context-{workspace}",
+                        gate_phase="CONTEXT_BUILD",
+                        model="laos_context_builder",
+                        prompt_tokens=used,
+                        completion_tokens=0,
+                        cache_read_tokens=0,
+                        outcome="PASS",
+                    )
+                    TokenLedger.append_to_file(entry, self.token_ledger_path)
+            return output
         except (KeyError, TypeError) as exc:
             raise RuntimeError("context build returned an invalid result") from exc
 

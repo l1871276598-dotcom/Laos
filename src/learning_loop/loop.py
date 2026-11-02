@@ -7,15 +7,26 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..context.builder import ContextBuilder
-from ..memory.candidate import CandidateStore
-from ..memory.store import MemoryStore
-from ..review import (
-    AuthorityMemoryStore,
-    AuthorityStore,
-    ReviewerProfile,
-    ReviewGate,
-)
+try:
+    from ..context.builder import ContextBuilder
+    from ..memory.candidate import CandidateStore
+    from ..memory.store import MemoryStore
+    from ..review import (
+        AuthorityMemoryStore,
+        AuthorityStore,
+        ReviewerProfile,
+        ReviewGate,
+    )
+except (ImportError, ValueError):
+    from context.builder import ContextBuilder
+    from memory.candidate import CandidateStore
+    from memory.store import MemoryStore
+    from review import (
+        AuthorityMemoryStore,
+        AuthorityStore,
+        ReviewerProfile,
+        ReviewGate,
+    )
 
 
 _STATES = {

@@ -604,6 +604,39 @@ class DecisionBoundActivationTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, "activation_receipt_missing")
 
+    def test_unreceipted_active_record_graceful_degradation(self):
+        import memory
+        from memory.store import MemoryStore
+        from review import AuthorityMemoryStore, AuthorityStore
+
+        authority = AuthorityStore(self.root, self.state)
+        record = {
+            "id": "unreceipted-active",
+            "type": "principle",
+            "title": "Unreceipted",
+            "created": "2026-08-05",
+            "updated": "2026-08-05",
+            "status": "active",
+            "scope": "global",
+            "workspace": "personal",
+            "confidentiality": "personal",
+            "source": "test",
+            "confidence": "confirmed",
+            "content": "unreceipted active content",
+            "tags": [],
+        }
+        path = self.root / memory.TYPE_DIRS["principle"] / "unreceipted-active-test.md"
+        path.write_text(memory.render_memory(record), encoding="utf-8")
+        guarded = AuthorityMemoryStore(MemoryStore(self.root), authority)
+
+        quarantined = []
+        rows = guarded.active_relevant(
+            "unreceipted", "personal", strict=False, quarantine_sink=quarantined
+        )
+        self.assertEqual(rows, [])
+        self.assertEqual(len(quarantined), 1)
+        self.assertEqual(quarantined[0]["id"], "unreceipted-active")
+
     def test_receipted_activation_is_visible_to_search_and_context(self):
         from context.builder import ContextBuilder
         from memory.store import MemoryStore
@@ -624,6 +657,40 @@ class DecisionBoundActivationTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in rows], [created["candidate_id"]])
         self.assertEqual(rows[0]["authority_receipt_id"], activation["activation_id"])
         self.assertEqual(pack["sources"], [created["candidate_id"]])
+
+    def test_meta_distillation_trigger_on_generation_delta(self):
+        from review.authority import AuthorityStore
+        from review.gate import ReviewGate
+
+        gate = ReviewGate(self.root, self.state)
+        auth = gate.authority_store
+
+        policy = auth.set_distillation_policy(interval=20, last_distilled_generation=0)
+        self.assertEqual(policy["interval"], 20)
+        self.assertEqual(policy["last_distilled_generation"], 0)
+
+        status = auth.check_distillation_due()
+        self.assertFalse(status["due"])
+        self.assertEqual(status["delta"], 0)
+        self.assertEqual(status["interval"], 20)
+
+        created = self.create_candidate(title="Candidate 1", content="distillation evidence 1")
+        decision = gate.review("accept", created["candidate_id"])
+        activation = gate.activate(decision["decision_id"], 0)
+        self.assertFalse(activation["meta_distillation_due"])
+
+        auth.set_distillation_policy(interval=2, last_distilled_generation=0)
+        self.assertFalse(auth.check_distillation_due()["due"])
+
+        created2 = self.create_candidate(title="Candidate 2", content="distillation evidence 2")
+        decision2 = gate.review("accept", created2["candidate_id"])
+        activation2 = gate.activate(decision2["decision_id"], 1)
+        self.assertTrue(activation2["meta_distillation_due"])
+        self.assertTrue(auth.check_distillation_due()["due"])
+
+        auth.record_distillation_completed()
+        self.assertFalse(auth.check_distillation_due()["due"])
+        self.assertEqual(auth.get_distillation_checkpoint()["last_distilled_generation"], 2)
 
 
 if __name__ == "__main__":

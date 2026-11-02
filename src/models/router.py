@@ -295,12 +295,14 @@ class AdaptiveModelRouterBackend(ModelBackend):
         backends: Dict[str, ModelBackend],
         sampler: ThompsonSampler,
         ledger: Optional[TokenLedger] = None,
+        ledger_path: Optional[Path | str] = None,
     ) -> None:
         if not backends or not isinstance(backends, dict):
             raise ValueError("backends must be a non-empty mapping of tier -> ModelBackend")
         self.backends = dict(backends)
         self.sampler = sampler
         self.ledger = ledger
+        self.ledger_path = Path(ledger_path) if ledger_path is not None else None
         # Register capabilities from all underlying backends
         caps = set()
         for b in self.backends.values():
@@ -329,7 +331,7 @@ class AdaptiveModelRouterBackend(ModelBackend):
                     cache_read_tokens=usage.get("cache_read_tokens", 0),
                     outcome=options.get("outcome", "PASS"),
                 )
-                ledger_path = options.get("ledger_path")
+                ledger_path = options.get("ledger_path") or self.ledger_path
                 if ledger_path:
                     self.ledger.append_to_file(entry, ledger_path)
 

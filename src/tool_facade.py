@@ -100,8 +100,9 @@ class LaosToolFacade:
         values = {"project_slug": project_slug, "content": content}
         if expected_sha256 is not None:
             values["expected_sha256"] = expected_sha256
+        confidentiality = "personal" if workspace == "personal" else "internal"
         result = self.application.run(
-            {"type": "handoff.write", "workspace": workspace, "input": values}
+            {"type": "handoff.write", "workspace": workspace, "confidentiality": confidentiality, "input": values}
         )
         try:
             output = result["output"]

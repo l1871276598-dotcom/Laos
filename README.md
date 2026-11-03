@@ -14,9 +14,9 @@ LAOS is a local-first, auditable, human-governed memory and learning layer for A
 - **Model independence:** GPT, Codex, Claude, local models, and other agents can use the same governed knowledge layer.
 - **Fail-closed isolation:** workspace, project, confidentiality, and restricted-data boundaries reject mismatches or exclude data by default.
 
-## Current capabilities (v0.10.0)
+## Current capabilities (v0.13.0)
 
-v0.10.0 includes Memory Core, a unified 12-agent JSON CLI, a deterministic learning chain, controlled conversation review, MCP checkpoint tooling, atomic vault promotion, crash-replay convergence, and GitHub Actions. It provides no autonomous approval, passive browser capture, multi-user authorization, or production deployment outside the local trusted-operator boundary.
+v0.13.0 includes Memory Core, a unified 12-agent JSON CLI, a deterministic learning chain, ADR-007 Heuristic Pattern Engine & Token Ledger, controlled conversation review, MCP checkpoint & FastMCP server suite, and **Darwin 2.0 Procedure Autonomous Evolution with Nuwa Master Cognitive Distillation**. It provides no autonomous approval, passive browser capture, multi-user authorization, or production deployment outside the local trusted-operator boundary.
 
 ## Reproducible local demo
 
@@ -94,7 +94,7 @@ LAOS 是一个本地优先、可审计、人工审核受控的 Agent 记忆与�
 
 > 上一版 `v0.9.0`：PR #29 squash merge（合并提交 `c21da74d`），Stage 17 本地 508 项测试，详见 `docs/progress/2026-07-06-v0.9.0-release-preparation.md`。
 
-## 已实现能力（截至 v0.10.0）
+## 已实现能力（截至 v0.13.0）
 
 ### Memory Core 与安全边界
 
@@ -170,6 +170,41 @@ finalize
 Developer Bridge Adapter 不接受任意路径、命令或环境注入；data、state、code 路径必须相互隔离，输入输出有固定大小边界，越权、冲突和不安全路径按 fail-closed 处理。
 
 MCP checkpoint 是显式工具通道，不是浏览器侧被动、无损或自动对话采集。真实 ChatGPT 五轮写入验收仍受当前账户能力限制。
+
+### 规程自进化与达尔文 2.0（Darwin Procedure Evolution）
+
+- 融合微软研究院 SkillLens 9 维诊断量表（工作流清晰度、失败分支、参数特异度、红线黑名单等）与 SkillOpt 启发式突变。
+- 双 Agent 盲评引擎（`DualAgentBlindJudge`）：Agent 1 负责规格与可执行度（Spec & Actionability），Agent 2 负责安全健壮性（Safety & Robustness），支持多模型裁判盲评以消除位置偏差。
+- 非退化安全棘轮（`RETAIN` / `REVERT`）：突变规程必须在双 Agent 联合判定下综合得分不退化，方可提交为候选。
+- 完整接入 Candidate Review Gate 仲裁门禁，遵守本地优先与人工审查原则。
+
+### 女娲大师认知框架蒸馏与五段式规程契约
+
+- **心智模型三重检验（Triple Validation）**（`validate_mental_model_triple_check`）：
+  - **跨域复现**：要求 $\ge 2$ 个有效证据来源或非平凡领域标签；
+  - **生成力**：要求完备的因果演绎推导链（前置场景/条件 $\to$ 故障机理/成因 $\to$ 确定性指令）；
+  - **排他性**：自动识别并惩罚空泛套话（如“保持整洁/注意安全”），强制要求量化阈值（QPS/超时/重试上限）与算法权衡（指数退避+Jitter/幂等键）。
+- **五段式规程架构（5-Section Architecture）**：
+  1. 适用场景与前置环境要求（Prerequisites）
+  2. 标准操作执行步骤（Actionable Execution Steps）
+  3. 失败分支与故障恢复（Failure Modes & Recovery Fallback）
+  4. 禁止动作与红线黑名单（Risk-Action Blacklist）
+  5. 诚实边界与失效宣告（Honest Boundaries & Invalidation Limits，涵盖硬件坏道、单机并发过载与主观法务界限）
+- **四大工程大师认知模型蒸馏**：
+  - `carmack`（John Carmack）：极简务实、消除冗余中间层、实机验证与确定性直接指令；
+  - `taleb`（Nassim Nicholas Taleb）：反脆弱、防御尾部黑天鹅风险、诚实边界与不可逆操作禁令；
+  - `sre`（Google SRE）：MTTR 优先、有限幂等重试配额（$\le 2$ 次）、爆炸半径严格隔离；
+  - `hickey`（Rich Hickey）：Simple Made Easy、前置环境/标准操作/异常自愈/诚实边界概念彻底解耦。
+
+### FastMCP 工具矩阵与能力面（Protocol Host）
+
+LAOS 通过 FastMCP（stdio）向 Claude Code / Cursor / Antigravity 提供统一的本地 Agent 能力：
+- `laos_procedure_optimize`：对既有规程执行达尔文自进化演进与大师盲评（支持 `--masters carmack taleb sre hickey`）；
+- `laos_procedure_review` / `laos_procedure_apply` / `laos_procedure_rollback`：规程版本生命周期管理与回滚；
+- `laos_memory_search`：分区受控读搜索（支持 `confidentiality` 机密等级穿透与过期索引自动修复）；
+- `laos_context_build`：基于 Token 预算自适应组装活跃记忆与启发式规则；
+- `laos_memory_create_candidate`：受控创建待审候选；
+- `laos_health` / `laos_token_summary` / `laos_pattern_list` / `laos_pattern_feedback`：遥测与自适应学习反馈。
 
 ## 硬性安全边界
 
@@ -296,6 +331,33 @@ python3 src/laos.py \
   --root "$DATA_ROOT" \
   --state-dir "$STATE_DIR" \
   --task-json '{"type":"context.build","input":{"query":"最少代码","workspace":"personal"}}'
+```
+
+### 达尔文规程自进化演进（Darwin Optimizer）
+
+针对单条规程执行达尔文自进化优化（融入工程大师认知框架）：
+
+```bash
+# 执行单条规程盲评优化并预览打分（dry-run 模式）
+python3 tools/darwin_optimize_procedure.py \
+  --procedure memory/procedures/procedure-xxx.md \
+  --masters carmack taleb sre hickey \
+  --dry-run
+
+# 去除 --dry-run 将自动生成待审候选并提交到 Review Gate
+python3 tools/darwin_optimize_procedure.py \
+  --procedure memory/procedures/procedure-xxx.md \
+  --masters carmack taleb sre hickey
+```
+
+对知识库既有全部生产规程执行批量进化与覆盖应用：
+
+```bash
+# 批量执行全部活动规程的自进化评测与候选生成
+python3 tools/batch_darwin_optimize.py
+
+# 经人工确认后，原子写回生效规程并自动重索引
+python3 tools/apply_darwin_procedures.py
 ```
 
 ## 最终 `loop.coordinate` 示例

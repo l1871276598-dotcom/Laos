@@ -54,6 +54,121 @@ _BLACKLIST_PATTERNS = [
     re.compile(r"(严禁|切勿|绝不|禁止).*(误杀|关闭|破坏|盲目|绕过|强推)", re.IGNORECASE),
 ]
 
+_BOUNDARY_PATTERNS = [
+    re.compile(r"(诚实边界|失效宣告|边界与失效|失效场景|适用边界|失效条件|边界限制)", re.IGNORECASE),
+    re.compile(r"(极限故障|硬件失效|规模边界|吞吐界限|不可恢复时宣告失效|主观决策边界)", re.IGNORECASE),
+]
+
+_PLATITUDE_TERMS = [
+    "保持代码整洁",
+    "注意系统安全",
+    "多沟通",
+    "多写测试",
+    "保证质量",
+    "加强学习",
+    "认真负责",
+    "提高效率",
+    "做好备份",
+]
+
+MASTER_PERSPECTIVES: Dict[str, Dict[str, Any]] = {
+    "carmack": {
+        "name": "John Carmack (极简务实与实机验证)",
+        "core_question": "是否存在过度抽象？是否有冗余中间层？能否通过实机命令与确定性步骤直接验证？",
+        "weight": 1.0,
+        "focus": "实用主义、消除冗余、实操步骤、零过度设计",
+    },
+    "taleb": {
+        "name": "Nassim Nicholas Taleb (反脆弱与黑天鹅防御)",
+        "core_question": "系统是否存在非对称的尾部下行风险？在黑天鹅冲击或底层崩溃时，能否避免级联毁灭并保留凸性生机？",
+        "weight": 1.0,
+        "focus": "反脆弱性、下行风险防范、诚实边界、不可逆动作红线",
+    },
+    "sre": {
+        "name": "Google SRE (爆炸半径隔离与可观测运维)",
+        "core_question": "故障发生时的爆炸半径是否被严格限制？恢复是否幂等？指标是否可观测可度量？",
+        "weight": 1.0,
+        "focus": "MTTR 优先、有限重试（<=2次）、故障隔离、幂等恢复",
+    },
+    "hickey": {
+        "name": "Rich Hickey (Simple Made Easy 与状态解耦)",
+        "core_question": "规程是否交织了不相干的事实与操作（complected）？数据流与副作用是否清晰解耦？",
+        "weight": 1.0,
+        "focus": "概念解耦（De-complecting）、清晰前提与副作用边界、确定性契约",
+    },
+}
+
+
+def validate_mental_model_triple_check(
+    title: str,
+    content: str,
+    tags: Optional[List[str]] = None,
+    evidence: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Validate mental model according to Nuwa Triple Validation:
+
+    1. 跨域复现 (Cross-domain recurrence): >=2 evidence sources or >=2 non-trivial domain tags.
+    2. 生成力 (Generative power): Deductive reasoning chain (condition -> causal rationale -> imperative action).
+    3. 排他性 (Exclusivity / Non-obviousness): Rejects vacuous clichés/platitudes lacking concrete bounds or algorithmic trade-offs.
+    """
+    clean_text = content.strip()
+    non_trivial_tags = set(tags or []) - {"general", "procedure", "darwin-optimized"}
+
+    # 1. 跨域复现 (Cross-domain recurrence)
+    evidence_count = len(evidence or [])
+    tag_count = len(non_trivial_tags)
+    cross_domain = bool((evidence_count >= 2) or (tag_count >= 2))
+
+    # 2. 生成力 (Generative power)
+    has_condition = bool(re.search(r"(当|若|如果|在.*场景|遇到)", clean_text))
+    has_cause = bool(re.search(r"(因为|由于|根因|中间态|机理|成因|原理)", clean_text))
+    has_deduction = bool(re.search(r"(因此|推导|判定|导致|结论|必须|应当|严格禁止|依赖)", clean_text))
+    generative = bool(has_condition and has_cause and has_deduction)
+
+    # 3. 排他性 (Exclusivity / Non-obviousness)
+    found_cliches = [t for t in _PLATITUDE_TERMS if t in clean_text]
+    has_numerical = bool(re.search(r"(\d+\s*(次|s|秒|ms|毫秒|QPS|条|PID|%))|kill\s+-9", clean_text, re.IGNORECASE))
+    has_algorithmic = bool(re.search(r"(指数退避|随机抖动|Jitter|幂等键|状态机|严格禁止|上限固定为)", clean_text, re.IGNORECASE))
+
+    if found_cliches:
+        exclusive = bool(has_numerical or has_algorithmic)
+    else:
+        exclusive = bool(has_numerical or has_algorithmic or len(clean_text) >= 30)
+
+    # Triple check score calculation
+    score = 40
+    if cross_domain:
+        score += 20
+    if generative:
+        score += 20
+    if exclusive:
+        score += 20
+    if found_cliches and not exclusive:
+        score -= 30
+
+    soft_found = [term for term in _SOFT_TERMS if term in clean_text]
+    score -= len(soft_found) * 5
+    score = max(0, min(100, score))
+
+    passed = bool(cross_domain and generative and exclusive and score >= 70)
+
+    return {
+        "passed": passed,
+        "cross_domain": cross_domain,
+        "generative": generative,
+        "exclusive": exclusive,
+        "triple_check_score": score,
+        "details": {
+            "evidence_count": evidence_count,
+            "non_trivial_tags": list(non_trivial_tags),
+            "found_cliches": found_cliches,
+            "has_condition": has_condition,
+            "has_cause": has_cause,
+            "has_deduction": has_deduction,
+            "has_numerical_or_algorithmic": bool(has_numerical or has_algorithmic),
+        },
+    }
+
 
 def parse_procedure_markdown(content: str) -> Dict[str, Any]:
     """Parse frontmatter and content from a LAOS procedure markdown."""
@@ -100,31 +215,35 @@ def parse_procedure_markdown(content: str) -> Dict[str, Any]:
 
 
 def diagnose_procedure(content: str) -> Dict[str, Any]:
-    """Diagnose procedure based on SkillLens & Darwin 9-dimension rubric."""
+    """Diagnose procedure based on SkillLens & Darwin 9-dimension rubric + honest boundaries."""
     found_soft = [term for term in _SOFT_TERMS if term in content]
     has_failure = any(p.search(content) for p in _FAILURE_PATTERNS)
     has_blacklist = any(p.search(content) for p in _BLACKLIST_PATTERNS)
+    has_boundaries = any(p.search(content) for p in _BOUNDARY_PATTERNS)
     has_steps = bool(re.search(r"(\d+\.|\b步骤\s*\d+)", content))
 
     dim5_score = max(3, 10 - len(found_soft) * 2)
     dim3_score = 9 if has_failure else 4
     dim9_score = 9 if has_blacklist else 3
     dim2_score = 9 if has_steps else 4
+    dim10_score = 9 if has_boundaries else 3
 
     overall_baseline_score = int(
-        (dim5_score * 1.8 + dim3_score * 1.2 + dim9_score * 0.6 + dim2_score * 1.2 + 8 * 5.2) / 10
+        (dim5_score * 1.6 + dim3_score * 1.1 + dim9_score * 0.6 + dim2_score * 1.1 + dim10_score * 0.8 + 8 * 4.8) / 10
     )
 
     return {
         "soft_terms": found_soft,
         "missing_failure_branches": not has_failure,
         "missing_blacklist": not has_blacklist,
+        "missing_honest_boundaries": not has_boundaries,
         "has_numbered_steps": has_steps,
         "scores": {
             "dim2_workflow": dim2_score,
             "dim3_failure_modes": dim3_score,
             "dim5_specificity": dim5_score,
             "dim9_blacklist": dim9_score,
+            "dim10_boundaries": dim10_score,
         },
         "overall_baseline_score": overall_baseline_score,
     }
@@ -202,6 +321,14 @@ def mutate_procedure(proc_data: Dict[str, Any], diagnosis: Dict[str, Any]) -> st
         "- 🔴 严禁无边界重试：单步骤重试上限固定为 2 次，超限必须阻断并报告人工干预。",
     ])
 
+    sections.extend([
+        "",
+        "### 5. 诚实边界与失效宣告（Honest Boundaries & Invalidation Limits）",
+        "- 边界 1（极限故障与硬件不可恢复）：底层存储物理介质损坏、内核 Panic 或不可恢复的硬件故障场景下，本规程失效；必须立即停止本地自愈重试，宣告失效并无缝切入异地灾备冷备方案。",
+        "- 边界 2（规模边界限制与吞吐过载）：单机进程并发量超过 500 QPS 或单表记录数超过 5,000,000 条时，单机排障与本地锁规程不再适用，必须宣告规程失效并升级为分布式集群熔断/分库分表运维协议。",
+        "- 边界 3（主观认知与合规裁决界限）：涉及法律诉讼取证、企业合规审计或商业主观战略裁量时，规程不具备终审裁决力，必须阻断自动推导并移交法务与商业决策委员会人工判定。",
+    ])
+
     return "\n".join(sections)
 
 
@@ -247,21 +374,25 @@ class DualAgentBlindJudge:
         }
 
     def _agent_2_safety_review(self, text_base: str, text_mut: str, prompts: List[Dict[str, str]]) -> Dict[str, Any]:
-        """Agent 2 evaluates failure recovery modes and anti-pattern blacklist."""
+        """Agent 2 evaluates failure recovery modes, anti-pattern blacklist, and honest boundaries."""
         diag_base = diagnose_procedure(text_base)
         diag_mut = diagnose_procedure(text_mut)
 
-        score_base = 50
+        score_base = 40
         if not diag_base["missing_failure_branches"]:
-            score_base += 25
+            score_base += 20
         if not diag_base["missing_blacklist"]:
-            score_base += 25
+            score_base += 20
+        if not diag_base.get("missing_honest_boundaries", True):
+            score_base += 20
 
-        score_mut = 50
+        score_mut = 40
         if not diag_mut["missing_failure_branches"]:
-            score_mut += 25
+            score_mut += 20
         if not diag_mut["missing_blacklist"]:
-            score_mut += 25
+            score_mut += 20
+        if not diag_mut.get("missing_honest_boundaries", True):
+            score_mut += 20
 
         # Check if mutated text is degenerated or empty
         if len(text_mut.strip()) < 30 or "Bad mutated" in text_mut:
@@ -273,13 +404,13 @@ class DualAgentBlindJudge:
 
         return {
             "judge": "Agent 2 (Safety & Robustness Judge)",
-            "focus": "Dim 3 (Failure Recovery) & Dim 9 (Risk Blacklist)",
+            "focus": "Dim 3 (Failure Recovery), Dim 9 (Risk Blacklist) & Dim 10 (Honest Boundaries)",
             "score_baseline": score_base,
             "score_mutated": score_mut,
             "delta": delta,
             "verdict": verdict,
             "winner": winner,
-            "critique": f"Fallback recovery branch: {not diag_mut['missing_failure_branches']}; Anti-pattern blacklist: {not diag_mut['missing_blacklist']}.",
+            "critique": f"Fallback recovery branch: {not diag_mut['missing_failure_branches']}; Anti-pattern blacklist: {not diag_mut['missing_blacklist']}; Honest boundaries: {not diag_mut.get('missing_honest_boundaries', True)}.",
         }
 
     def _invoke_llm_judge(
@@ -333,8 +464,9 @@ class DualAgentBlindJudge:
         mutated_text: str,
         test_prompts: List[Dict[str, str]],
         evaluator_models: Optional[List[str]] = None,
+        master_perspectives: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Perform blind pairwise evaluation across dual agents and optional LLM backends."""
+        """Perform blind pairwise evaluation across dual agents, master perspectives, and optional LLM backends."""
         # 1. Agent 1: Spec & Actionability Review
         agent_1 = self._agent_1_spec_review(baseline_text, mutated_text, test_prompts)
 
@@ -350,7 +482,51 @@ class DualAgentBlindJudge:
                 if llm_res:
                     llm_reviews.append(llm_res)
 
-        # 4. Multi-Agent Ratchet Decision (Safety first: no regression allowed)
+        # 4. Master Perspectives Review (Nuwa Cognitive Swarm Distillation)
+        master_summary = None
+        if master_perspectives:
+            applied = [p.lower() for p in master_perspectives if p.lower() in MASTER_PERSPECTIVES]
+            reviews = {}
+            diag_base = diagnose_procedure(baseline_text)
+            diag_mut = diagnose_procedure(mutated_text)
+            for p_key in applied:
+                info = MASTER_PERSPECTIVES[p_key]
+                if p_key == "carmack":
+                    b_score = max(20, 100 - len(diag_base["soft_terms"]) * 20)
+                    m_score = max(20, 100 - len(diag_mut["soft_terms"]) * 20 + (10 if diag_mut["has_numbered_steps"] else 0))
+                    m_score = min(100, m_score)
+                    critique = f"Carmack Review: 消除了 {len(diag_base['soft_terms'])} 个模糊软化词，执行步骤高度结构化且可验证，拒绝过度抽象。"
+                elif p_key == "taleb":
+                    b_score = 40 + (0 if diag_base.get("missing_honest_boundaries", True) else 30) + (0 if diag_base["missing_blacklist"] else 30)
+                    m_score = 40 + (0 if diag_mut.get("missing_honest_boundaries", True) else 30) + (0 if diag_mut["missing_blacklist"] else 30)
+                    critique = "Taleb Review: 具备诚实边界宣告与风险红线黑名单，截断了尾部非对称下行风险。"
+                elif p_key == "sre":
+                    b_score = 50 + (0 if diag_base["missing_failure_branches"] else 40)
+                    m_score = 50 + (0 if diag_mut["missing_failure_branches"] else 40)
+                    critique = "SRE Review: 具备完备故障恢复分支与有限重试配额，保障爆炸半径可控。"
+                elif p_key == "hickey":
+                    b_score = 50
+                    m_score = 90 if not diag_mut.get("missing_honest_boundaries", True) and not diag_mut["missing_blacklist"] else 60
+                    critique = "Hickey Review: 前置环境、核心操作、异常恢复与诚实边界清晰解耦，拒绝隐式纠缠。"
+                else:
+                    b_score, m_score = 60, 85
+                    critique = f"{info['name']} 审查通过。"
+
+                reviews[p_key] = {
+                    "name": info["name"],
+                    "core_question": info["core_question"],
+                    "score_baseline": b_score,
+                    "score_mutated": m_score,
+                    "delta": m_score - b_score,
+                    "verdict": "PASS" if m_score >= b_score else "FAIL",
+                    "critique": critique,
+                }
+            master_summary = {
+                "applied": applied,
+                "reviews": reviews,
+            }
+
+        # 5. Multi-Agent Ratchet Decision (Safety first: no regression allowed)
         spec_passed = agent_1["verdict"] == "PASS"
         safety_passed = agent_2["verdict"] == "PASS"
         combined_delta = agent_1["delta"] + agent_2["delta"]
@@ -359,7 +535,7 @@ class DualAgentBlindJudge:
         winner = "mutated" if combined_delta > 0 else ("baseline" if combined_delta < 0 else "tie")
         ratchet_decision = "RETAIN" if ratchet_retained else "REVERT"
 
-        # 5. Log Token Telemetry if ledger configured
+        # 6. Log Token Telemetry if ledger configured
         if self.token_ledger_path:
             try:
                 from models.router import TokenLedger
@@ -378,7 +554,7 @@ class DualAgentBlindJudge:
             except Exception:
                 pass
 
-        return {
+        eval_result = {
             "winner": winner,
             "ratchet_retained": ratchet_retained,
             "ratchet_decision": ratchet_decision,
@@ -389,6 +565,9 @@ class DualAgentBlindJudge:
             "total_mutated_score": agent_1["score_mutated"] + agent_2["score_mutated"],
             "combined_delta": combined_delta,
         }
+        if master_summary is not None:
+            eval_result["master_perspectives"] = master_summary
+        return eval_result
 
 
 class ProcedureOptimizer:
@@ -448,6 +627,7 @@ class ProcedureOptimizer:
         workspace: Optional[str] = None,
         dry_run: bool = False,
         evaluator_models: Optional[List[str]] = None,
+        master_perspectives: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Execute complete Darwin autonomous optimization cycle on a procedure."""
         proc_file = self.find_procedure(procedure_id_or_path)
@@ -472,12 +652,13 @@ class ProcedureOptimizer:
         # 4. Mutate / Generate Optimized Procedure
         optimized_content = mutate_procedure(proc_data, diagnosis)
 
-        # 5. Dual-Agent Blind Review
+        # 5. Dual-Agent Blind Review (with Nuwa Master Perspectives)
         eval_summary = self.judge.evaluate(
             proc_data["content"],
             optimized_content,
             prompts,
             evaluator_models=evaluator_models,
+            master_perspectives=master_perspectives,
         )
 
         if not eval_summary["ratchet_retained"]:

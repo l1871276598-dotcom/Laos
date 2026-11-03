@@ -140,11 +140,13 @@ def build_protocol_host(facade, *, server_options=None):
         workspace: str = "personal",
         dry_run: bool = False,
         evaluator_models: list[str] | None = None,
+        master_perspectives: list[str] | None = None,
     ) -> dict:
         """Autonomously optimize a procedure using Darwin Skill 2.0 with multi-model blind pairwise review.
 
         Runs SkillLens 9-dimension diagnosis, synthesizes 2 test scenarios,
         executes dual-agent blind evaluation (Spec Completeness Judge + Safety Robustness Judge),
+        incorporates distilled master cognitive frameworks (carmack, taleb, sre, hickey),
         and applies a strict safety ratchet before submitting a candidate to the review gate.
         `workspace` must be 'personal' or 'work'.
         """
@@ -153,6 +155,7 @@ def build_protocol_host(facade, *, server_options=None):
             workspace=workspace,
             dry_run=dry_run,
             evaluator_models=evaluator_models,
+            master_perspectives=master_perspectives,
         )
 
     @host.tool()

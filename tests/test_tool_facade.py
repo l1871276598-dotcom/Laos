@@ -53,12 +53,13 @@ class CheckpointCapture:
 
 
 class Optimizer:
-    def optimize(self, procedure_id_or_path, workspace="personal", dry_run=False, evaluator_models=None):
+    def optimize(self, procedure_id_or_path, workspace="personal", dry_run=False, evaluator_models=None, master_perspectives=None):
         return {
             "procedure_id": procedure_id_or_path,
             "workspace": workspace,
             "dry_run": dry_run,
             "evaluator_models": evaluator_models,
+            "master_perspectives": master_perspectives,
             "status": "candidate_created",
         }
 
@@ -210,11 +211,13 @@ class ToolFacadeTests(unittest.TestCase):
             workspace="personal",
             dry_run=True,
             evaluator_models=["gpt-4o", "claude-3-5-sonnet"],
+            master_perspectives=["carmack", "taleb"],
         )
         self.assertEqual(res["procedure_id"], "procedure-123")
         self.assertEqual(res["workspace"], "personal")
         self.assertTrue(res["dry_run"])
         self.assertEqual(res["evaluator_models"], ["gpt-4o", "claude-3-5-sonnet"])
+        self.assertEqual(res["master_perspectives"], ["carmack", "taleb"])
 
         # Input validations
         with self.assertRaises(ValueError):
@@ -227,6 +230,10 @@ class ToolFacadeTests(unittest.TestCase):
             facade.procedure_optimize("p1", "personal", evaluator_models="not_a_list")
         with self.assertRaises(ValueError):
             facade.procedure_optimize("p1", "personal", evaluator_models=[""])
+        with self.assertRaises(ValueError):
+            facade.procedure_optimize("p1", "personal", master_perspectives="not_a_list")
+        with self.assertRaises(ValueError):
+            facade.procedure_optimize("p1", "personal", master_perspectives=[""])
 
         # Unavailable optimizer
         empty_facade = LaosToolFacade(Application())

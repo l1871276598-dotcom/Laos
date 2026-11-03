@@ -57,6 +57,7 @@ def darwin_optimize(
     workspace: str | None = None,
     dry_run: bool = False,
     evaluator_models: Optional[List[str]] = None,
+    master_perspectives: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Execute complete Darwin autonomous optimization cycle on a LAOS procedure."""
     if root is None:
@@ -77,6 +78,7 @@ def darwin_optimize(
         workspace=workspace,
         dry_run=dry_run,
         evaluator_models=evaluator_models,
+        master_perspectives=master_perspectives,
     )
 
 
@@ -88,6 +90,7 @@ def main():
     parser.add_argument("--workspace", default=None, help="Target workspace partition (personal or work)")
     parser.add_argument("--dry-run", action="store_true", help="Run diagnosis and evaluation without creating candidate")
     parser.add_argument("--models", nargs="*", default=None, help="Optional model names for multi-model LLM judge")
+    parser.add_argument("--masters", "--perspectives", nargs="*", default=None, help="Master perspectives (e.g. carmack, taleb, sre, hickey)")
     args = parser.parse_args()
 
     result = darwin_optimize(
@@ -97,6 +100,7 @@ def main():
         workspace=args.workspace,
         dry_run=args.dry_run,
         evaluator_models=args.models,
+        master_perspectives=args.masters,
     )
 
     print("\n" + "=" * 60)
@@ -105,12 +109,13 @@ def main():
     print(f"Target Procedure : {result.get('title')} ({result.get('procedure_id')})")
     print(f"Source Digest    : {result.get('source_sha256')}")
     print(f"Status           : {result.get('status')}")
-    print("\n[Diagnosis - SkillLens 9-Dim Rubric]")
+    print("\n[Diagnosis - SkillLens 9-Dim Rubric & Honest Boundaries]")
     for k, v in result["diagnosis"]["scores"].items():
         print(f"  • {k:<20} : {v}/10")
     print(f"  • Soft Terms Found     : {result['diagnosis']['soft_terms']}")
     print(f"  • Missing Fallback     : {result['diagnosis']['missing_failure_branches']}")
     print(f"  • Missing Blacklist    : {result['diagnosis']['missing_blacklist']}")
+    print(f"  • Missing Boundaries   : {result['diagnosis'].get('missing_honest_boundaries')}")
 
     print("\n[Dual-Agent Blind Review - Baseline vs Mutated]")
     eval_res = result["eval_summary"]
@@ -118,6 +123,12 @@ def main():
     print(f"  • Ratchet Decision     : {eval_res['ratchet_decision']}")
     print(f"  • Agent 1 (Spec)       : {eval_res['agent_1_spec_judge']['verdict']} (Score: {eval_res['agent_1_spec_judge']['score_mutated']}/100, Δ: {eval_res['agent_1_spec_judge']['delta']:+d})")
     print(f"  • Agent 2 (Safety)     : {eval_res['agent_2_safety_judge']['verdict']} (Score: {eval_res['agent_2_safety_judge']['score_mutated']}/100, Δ: {eval_res['agent_2_safety_judge']['delta']:+d})")
+
+    if eval_res.get("master_perspectives"):
+        print("\n[Nuwa Master Cognitive Swarm Distillation]")
+        for m_key, m_rev in eval_res["master_perspectives"]["reviews"].items():
+            print(f"  • {m_rev['name']}: {m_rev['verdict']} (Score: {m_rev['score_mutated']}/100, Δ: {m_rev['delta']:+d})")
+            print(f"    - Critique: {m_rev['critique']}")
 
     if eval_res.get("llm_reviews"):
         print("\n[Multi-Model LLM Reviews]")

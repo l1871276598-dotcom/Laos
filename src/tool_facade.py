@@ -153,6 +153,7 @@ class LaosToolFacade:
         workspace: str = "personal",
         dry_run: bool = False,
         evaluator_models: list[str] | None = None,
+        master_perspectives: list[str] | None = None,
     ) -> dict:
         if not isinstance(procedure_id, str) or not procedure_id.strip():
             raise ValueError("procedure_id must be a non-empty string")
@@ -165,6 +166,11 @@ class LaosToolFacade:
             or not all(isinstance(m, str) and m.strip() for m in evaluator_models)
         ):
             raise ValueError("evaluator_models must be a list of non-empty strings")
+        if master_perspectives is not None and (
+            not isinstance(master_perspectives, list)
+            or not all(isinstance(m, str) and m.strip() for m in master_perspectives)
+        ):
+            raise ValueError("master_perspectives must be a list of non-empty strings")
 
         opt = self.optimizer
         if opt is None:
@@ -174,6 +180,7 @@ class LaosToolFacade:
             workspace=workspace,
             dry_run=dry_run,
             evaluator_models=evaluator_models,
+            master_perspectives=master_perspectives,
         )
 
     def context_build(self, query, workspace, project=None, limit=8000):

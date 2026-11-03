@@ -17,6 +17,7 @@ from procedures.optimizer import (
     generate_test_prompts,
     mutate_procedure,
     parse_procedure_markdown,
+    validate_mental_model_triple_check,
 )
 from memory import init_store
 
@@ -163,6 +164,68 @@ class ProcedureOptimizerTests(unittest.TestCase):
             self.assertTrue(res["eval_summary"]["ratchet_retained"])
             self.assertIsNotNone(res["candidate_id"])
             self.assertTrue((root / res["candidate_path"]).is_file())
+
+    def test_mental_model_triple_check_validates_and_rejects_platitudes(self):
+        # 1. Rigorous mental model with cross-domain, generative, and exclusive properties
+        rigorous_model = (
+            "状态机幂等退避：当分布式服务遇到非致命通信超时，由于可能处于中间态，"
+            "因此推导必须依赖业务唯一幂等键并在重试时引入指数退避加随机抖动（Jitter），"
+            "严格禁止裸重试，单次故障调用重试上限固定为 2 次。"
+        )
+        res_pass = validate_mental_model_triple_check(
+            "状态机幂等退避法则",
+            rigorous_model,
+            tags=["resilience", "database"],
+            evidence=["file:memory/procedures/procedure-1.md", "file:memory/procedures/procedure-2.md"],
+        )
+        self.assertTrue(res_pass["passed"])
+        self.assertTrue(res_pass["cross_domain"])
+        self.assertTrue(res_pass["generative"])
+        self.assertTrue(res_pass["exclusive"])
+        self.assertGreaterEqual(res_pass["triple_check_score"], 80)
+
+        # 2. Platitude / cliché: lacks deductive generative power and exclusivity
+        platitude = "平时开发要保持代码整洁，注意系统安全，团队之间要多沟通多写测试。"
+        res_fail = validate_mental_model_triple_check(
+            "代码建议",
+            platitude,
+            tags=["general"],
+            evidence=[],
+        )
+        self.assertFalse(res_fail["passed"])
+        self.assertFalse(res_fail["exclusive"])
+        self.assertLess(res_fail["triple_check_score"], 60)
+
+    def test_diagnose_and_mutate_honest_boundaries(self):
+        parsed = parse_procedure_markdown(SAMPLE_PROCEDURE)
+        diag = diagnose_procedure(parsed["content"])
+        self.assertTrue(diag["missing_honest_boundaries"])
+
+        mutated = mutate_procedure(parsed, diag)
+        self.assertIn("### 5. 诚实边界与失效宣告", mutated)
+        self.assertIn("规模边界限制", mutated)
+
+        diag_mut = diagnose_procedure(mutated)
+        self.assertFalse(diag_mut["missing_honest_boundaries"])
+
+    def test_master_perspectives_distillation_in_review(self):
+        parsed = parse_procedure_markdown(SAMPLE_PROCEDURE)
+        diag = diagnose_procedure(parsed["content"])
+        mutated = mutate_procedure(parsed, diag)
+        prompts = generate_test_prompts(parsed["title"], parsed["content"])
+
+        judge = DualAgentBlindJudge()
+        result = judge.evaluate(
+            parsed["content"],
+            mutated,
+            prompts,
+            master_perspectives=["carmack", "taleb"],
+        )
+        self.assertIn("master_perspectives", result)
+        self.assertEqual(result["master_perspectives"]["applied"], ["carmack", "taleb"])
+        self.assertIn("carmack", result["master_perspectives"]["reviews"])
+        self.assertIn("taleb", result["master_perspectives"]["reviews"])
+        self.assertTrue(result["ratchet_retained"])
 
 
 if __name__ == "__main__":

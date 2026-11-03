@@ -54,22 +54,18 @@ def darwin_optimize(
     procedure_path: Path | str,
     root: Path | str | None = None,
     state_dir: Path | str | None = None,
+    workspace: str | None = None,
     dry_run: bool = False,
     evaluator_models: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Execute complete Darwin autonomous optimization cycle on a LAOS procedure."""
-    proc_file = Path(procedure_path).expanduser().resolve(strict=True)
-
     if root is None:
-        cur = proc_file.parent
-        while cur != cur.parent:
-            if (cur / "memory").is_dir():
-                root = cur
-                break
-            cur = cur.parent
-        if root is None:
+        default_data = Path("/Users/user/Library/Mobile Documents/com~apple~CloudDocs/ResearchAgent")
+        if default_data.is_dir():
+            root = default_data
+        else:
             root = ROOT
-    root = Path(root).expanduser().resolve(strict=True)
+    root = Path(root).expanduser().resolve(strict=False)
 
     if state_dir is None:
         state_dir = default_state_dir()
@@ -77,7 +73,8 @@ def darwin_optimize(
 
     optimizer = ProcedureOptimizer(data_root=root, state_dir=state_dir)
     return optimizer.optimize(
-        procedure_id_or_path=str(proc_file),
+        procedure_id_or_path=str(procedure_path),
+        workspace=workspace,
         dry_run=dry_run,
         evaluator_models=evaluator_models,
     )
@@ -88,6 +85,7 @@ def main():
     parser.add_argument("--procedure", required=True, help="Path or ID of procedure markdown file")
     parser.add_argument("--root", default=None, help="LAOS data root path")
     parser.add_argument("--state-dir", default=None, help="LAOS state directory")
+    parser.add_argument("--workspace", default=None, help="Target workspace partition (personal or work)")
     parser.add_argument("--dry-run", action="store_true", help="Run diagnosis and evaluation without creating candidate")
     parser.add_argument("--models", nargs="*", default=None, help="Optional model names for multi-model LLM judge")
     args = parser.parse_args()
@@ -96,6 +94,7 @@ def main():
         procedure_path=args.procedure,
         root=args.root,
         state_dir=args.state_dir,
+        workspace=args.workspace,
         dry_run=args.dry_run,
         evaluator_models=args.models,
     )

@@ -90,6 +90,7 @@ def parse_procedure_markdown(content: str) -> Dict[str, Any]:
         "workspace": record.get("workspace", "personal"),
         "scope": record.get("scope", "global"),
         "confidentiality": record.get("confidentiality", "personal"),
+        "project": record.get("project"),
         "status": record.get("status", "active"),
         "tags": record.get("tags") or [],
         "content": text_content.strip(),
@@ -444,7 +445,7 @@ class ProcedureOptimizer:
     def optimize(
         self,
         procedure_id_or_path: str,
-        workspace: str = "personal",
+        workspace: Optional[str] = None,
         dry_run: bool = False,
         evaluator_models: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
@@ -499,6 +500,7 @@ class ProcedureOptimizer:
                 "workspace": workspace or proc_data.get("workspace", "personal"),
                 "scope": proc_data.get("scope", "global"),
                 "confidentiality": proc_data.get("confidentiality", "personal"),
+                "project": proc_data.get("project"),
                 "confidence": "inferred",
                 "source": "manual:user_confirmed",
                 "action": "create",

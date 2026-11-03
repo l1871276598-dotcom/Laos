@@ -26,6 +26,7 @@ def build_protocol_host(facade, *, server_options=None):
         workspace: str,
         project: str | None = None,
         limit: int = 20,
+        confidentiality: str | None = None,
     ) -> list[dict]:
         """Run a read-only search against the configured LAOS data root.
 
@@ -33,7 +34,9 @@ def build_protocol_host(facade, *, server_options=None):
         does not accept filesystem paths, database paths, write flags, or shell
         commands. `workspace` must be `personal` or `work`; `limit` is capped at 50.
         """
-        return facade.memory_search(query, workspace, project, limit)
+        if confidentiality is not None:
+            return facade.memory_search(query, workspace, project=project, limit=limit, confidentiality=confidentiality)
+        return facade.memory_search(query, workspace, project=project, limit=limit)
 
     @host.tool()
     def laos_handoff_write(
@@ -135,17 +138,44 @@ def build_protocol_host(facade, *, server_options=None):
         return facade.procedure_rollback(proposal_id)
 
     @host.tool()
+    def laos_procedure_optimize(
+        procedure_id: str,
+        workspace: str = "personal",
+        dry_run: bool = False,
+        evaluator_models: list[str] | None = None,
+        master_perspectives: list[str] | None = None,
+    ) -> dict:
+        """Autonomously optimize a procedure using Darwin Skill 2.0 with multi-model blind pairwise review.
+
+        Runs SkillLens 9-dimension diagnosis, synthesizes 2 test scenarios,
+        executes dual-agent blind evaluation (Spec Completeness Judge + Safety Robustness Judge),
+        incorporates distilled master cognitive frameworks (carmack, taleb, sre, hickey),
+        and applies a strict safety ratchet before submitting a candidate to the review gate.
+        `workspace` must be 'personal' or 'work'.
+        """
+        return facade.procedure_optimize(
+            procedure_id=procedure_id,
+            workspace=workspace,
+            dry_run=dry_run,
+            evaluator_models=evaluator_models,
+            master_perspectives=master_perspectives,
+        )
+
+    @host.tool()
     def laos_context_build(
         query: str,
         workspace: str,
         project: str | None = None,
         limit: int = 8000,
+        confidentiality: str | None = None,
     ) -> dict:
         """Assemble prompt context from active memories and heuristic patterns under token budget.
 
         Returns text, sources, limit, and used token/character counters.
         `workspace` must be 'personal' or 'work'.
         """
+        if confidentiality is not None:
+            return facade.context_build(query, workspace, project=project, limit=limit, confidentiality=confidentiality)
         return facade.context_build(query, workspace, project=project, limit=limit)
 
     @host.tool()

@@ -138,6 +138,9 @@ def build_facade(args):
         health_check=health_check,
         token_ledger_path=token_ledger_path,
         pattern_graph_path=pattern_graph_path,
+        data_root=args.data_root,
+        state_dir=args.state_dir,
+        model_backend=backend,
     )
 
 

@@ -65,6 +65,16 @@ class Facade:
     def procedure_rollback(self, proposal_id):
         return {"rolled_back": proposal_id}
 
+    def procedure_optimize(self, procedure_id, workspace="personal", dry_run=False, evaluator_models=None, master_perspectives=None):
+        return {
+            "procedure_id": procedure_id,
+            "workspace": workspace,
+            "dry_run": dry_run,
+            "evaluator_models": evaluator_models,
+            "master_perspectives": master_perspectives,
+            "status": "candidate_created",
+        }
+
     def context_build(self, query, workspace, project=None, limit=8000):
         return {"text": f"context for {query}", "workspace": workspace, "limit": limit}
 
@@ -184,6 +194,7 @@ class ProtocolHostTests(unittest.TestCase):
             "laos_procedure_review",
             "laos_procedure_apply",
             "laos_procedure_rollback",
+            "laos_procedure_optimize",
             "laos_context_build",
             "laos_memory_create_candidate",
             "laos_health",
@@ -209,6 +220,14 @@ class ProtocolHostTests(unittest.TestCase):
         self.assertEqual(host.tools["laos_procedure_review"]("p1", "approved")["action"], "approved")
         self.assertEqual(host.tools["laos_procedure_apply"]("p1")["applied"], "p1")
         self.assertEqual(host.tools["laos_procedure_rollback"]("p1")["rolled_back"], "p1")
+        self.assertEqual(
+            host.tools["laos_procedure_optimize"]("p1", workspace="personal", dry_run=True, master_perspectives=["carmack"])["procedure_id"],
+            "p1",
+        )
+        self.assertEqual(
+            host.tools["laos_procedure_optimize"]("p1", workspace="personal", dry_run=True, master_perspectives=["carmack"])["master_perspectives"],
+            ["carmack"],
+        )
 
         # Test health & telemetry & pattern tools
         self.assertTrue(host.tools["laos_health"]()["healthy"])

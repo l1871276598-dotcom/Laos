@@ -9,6 +9,10 @@ class LaosToolFacade:
         health_check=None,
         token_ledger_path=None,
         pattern_graph_path=None,
+        data_root=None,
+        state_dir=None,
+        model_backend=None,
+        optimizer=None,
     ):
         self.application = application
         self.sessions = sessions
@@ -18,11 +22,41 @@ class LaosToolFacade:
         self.health_check = health_check
         self.token_ledger_path = token_ledger_path
         self.pattern_graph_path = pattern_graph_path
+        self.data_root = data_root
+        self.state_dir = state_dir
+        self.model_backend = model_backend
+        self._optimizer = optimizer
+
+    @property
+    def optimizer(self):
+        if self._optimizer is not None:
+            return self._optimizer
+        root = self.data_root
+        if root is None and self.manager is not None:
+            manager_root = getattr(self.manager, "root", None)
+            if manager_root is not None:
+                root = manager_root.parent
+        state = self.state_dir
+        if state is None and self.procedures is not None:
+            proc_path = getattr(self.procedures, "path", None)
+            if proc_path is not None:
+                state = proc_path.parent
+        if root is None:
+            return None
+        from procedures.optimizer import ProcedureOptimizer
+
+        self._optimizer = ProcedureOptimizer(
+            data_root=root,
+            state_dir=state,
+            model_backend=self.model_backend,
+            token_ledger_path=self.token_ledger_path,
+        )
+        return self._optimizer
 
     def run_task(self, task):
         return self.application.run(task)
 
-    def memory_search(self, query, workspace, project=None, limit=20):
+    def memory_search(self, query, workspace, project=None, limit=20, confidentiality=None):
         if not isinstance(query, str) or not query.strip():
             raise ValueError("query must be a non-empty string")
         if workspace not in {"personal", "work"}:
@@ -31,11 +65,20 @@ class LaosToolFacade:
             raise ValueError("project must be a non-empty string")
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
             raise ValueError("limit must be between 1 and 50")
+        if confidentiality is None:
+            confidentiality = "personal" if workspace == "personal" else "internal"
+        if confidentiality not in {"public", "personal", "internal", "restricted"}:
+            raise ValueError("confidentiality must be public, personal, internal or restricted")
 
-        values = {"query": query, "workspace": workspace}
+        values = {"query": query, "workspace": workspace, "confidentiality": confidentiality}
         if project is not None:
             values["project"] = project
-        result = self.application.run({"type": "memory.search", "input": values})
+        result = self.application.run({
+            "type": "memory.search",
+            "workspace": workspace,
+            "confidentiality": confidentiality,
+            "input": values,
+        })
         try:
             rows = result["output"]["results"]
         except (KeyError, TypeError) as exc:
@@ -113,7 +156,43 @@ class LaosToolFacade:
             raise RuntimeError("procedure manager is unavailable")
         return self.manager.rollback(proposal_id)
 
-    def context_build(self, query, workspace, project=None, limit=8000):
+    def procedure_optimize(
+        self,
+        procedure_id: str,
+        workspace: str = "personal",
+        dry_run: bool = False,
+        evaluator_models: list[str] | None = None,
+        master_perspectives: list[str] | None = None,
+    ) -> dict:
+        if not isinstance(procedure_id, str) or not procedure_id.strip():
+            raise ValueError("procedure_id must be a non-empty string")
+        if workspace not in {"personal", "work"}:
+            raise ValueError("workspace must be personal or work")
+        if not isinstance(dry_run, bool):
+            raise ValueError("dry_run must be boolean")
+        if evaluator_models is not None and (
+            not isinstance(evaluator_models, list)
+            or not all(isinstance(m, str) and m.strip() for m in evaluator_models)
+        ):
+            raise ValueError("evaluator_models must be a list of non-empty strings")
+        if master_perspectives is not None and (
+            not isinstance(master_perspectives, list)
+            or not all(isinstance(m, str) and m.strip() for m in master_perspectives)
+        ):
+            raise ValueError("master_perspectives must be a list of non-empty strings")
+
+        opt = self.optimizer
+        if opt is None:
+            raise RuntimeError("procedure optimizer is unavailable")
+        return opt.optimize(
+            procedure_id_or_path=procedure_id,
+            workspace=workspace,
+            dry_run=dry_run,
+            evaluator_models=evaluator_models,
+            master_perspectives=master_perspectives,
+        )
+
+    def context_build(self, query, workspace, project=None, limit=8000, confidentiality=None):
         if not isinstance(query, str) or not query.strip():
             raise ValueError("query must be a non-empty string")
         if workspace not in {"personal", "work"}:
@@ -122,12 +201,26 @@ class LaosToolFacade:
             raise ValueError("project must be a non-empty string")
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise ValueError("limit must be a positive integer")
+        if confidentiality is None:
+            confidentiality = "personal" if workspace == "personal" else "internal"
+        if confidentiality not in {"public", "personal", "internal", "restricted"}:
+            raise ValueError("confidentiality must be public, personal, internal or restricted")
 
-        values = {"query": query, "workspace": workspace, "limit": limit}
+        values = {
+            "query": query,
+            "workspace": workspace,
+            "limit": limit,
+            "confidentiality": confidentiality,
+        }
         if project is not None:
             values["project"] = project
         result = self.application.run(
-            {"type": "context.build", "workspace": workspace, "input": values}
+            {
+                "type": "context.build",
+                "workspace": workspace,
+                "confidentiality": confidentiality,
+                "input": values,
+            }
         )
         try:
             output = result["output"]

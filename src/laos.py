@@ -55,27 +55,42 @@ def build_application(root, state_dir=None, model_backend=None):
     store = AuthorityMemoryStore(base_store, authority)
 
     def search_documents(query, workspace, project, confidentiality=None):
-        return memory.search_store(
-            argparse.Namespace(
-                root=str(root),
-                state_dir=str(candidates.state_dir),
-                query=query,
-                kind="document",
-                source_kind=None,
-                project=project,
-                context_id=None,
-                workspace=workspace,
-                status=None,
-                as_of=None,
-                include_unassigned=False,
-                include_restricted=False,
-                include_inactive=False,
-                confidentiality=confidentiality,
-                limit=20,
-                json=True,
-                mode="lexical",
-            )
+        ns = argparse.Namespace(
+            root=str(root),
+            state_dir=str(candidates.state_dir),
+            query=query,
+            kind="document",
+            source_kind=None,
+            project=project,
+            context_id=None,
+            workspace=workspace,
+            status=None,
+            as_of=None,
+            include_unassigned=False,
+            include_restricted=False,
+            include_inactive=False,
+            confidentiality=confidentiality,
+            limit=20,
+            json=True,
+            mode="lexical",
         )
+        try:
+            return memory.search_store(ns)
+        except ValueError as exc:
+            if "index is stale" in str(exc):
+                try:
+                    memory.index_store(
+                        argparse.Namespace(
+                            root=Path(root),
+                            state_dir=Path(candidates.state_dir),
+                            quiet=True,
+                            dry_run=False,
+                        )
+                    )
+                    return memory.search_store(ns)
+                except Exception:
+                    return []
+            raise
 
     core = MemoryCore(store, candidates, search_documents)
 

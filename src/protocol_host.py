@@ -26,6 +26,7 @@ def build_protocol_host(facade, *, server_options=None):
         workspace: str,
         project: str | None = None,
         limit: int = 20,
+        confidentiality: str | None = None,
     ) -> list[dict]:
         """Run a read-only search against the configured LAOS data root.
 
@@ -33,7 +34,9 @@ def build_protocol_host(facade, *, server_options=None):
         does not accept filesystem paths, database paths, write flags, or shell
         commands. `workspace` must be `personal` or `work`; `limit` is capped at 50.
         """
-        return facade.memory_search(query, workspace, project, limit)
+        if confidentiality is not None:
+            return facade.memory_search(query, workspace, project=project, limit=limit, confidentiality=confidentiality)
+        return facade.memory_search(query, workspace, project=project, limit=limit)
 
     @host.tool()
     def laos_handoff_write(
@@ -164,12 +167,15 @@ def build_protocol_host(facade, *, server_options=None):
         workspace: str,
         project: str | None = None,
         limit: int = 8000,
+        confidentiality: str | None = None,
     ) -> dict:
         """Assemble prompt context from active memories and heuristic patterns under token budget.
 
         Returns text, sources, limit, and used token/character counters.
         `workspace` must be 'personal' or 'work'.
         """
+        if confidentiality is not None:
+            return facade.context_build(query, workspace, project=project, limit=limit, confidentiality=confidentiality)
         return facade.context_build(query, workspace, project=project, limit=limit)
 
     @host.tool()

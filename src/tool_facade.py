@@ -56,7 +56,7 @@ class LaosToolFacade:
     def run_task(self, task):
         return self.application.run(task)
 
-    def memory_search(self, query, workspace, project=None, limit=20):
+    def memory_search(self, query, workspace, project=None, limit=20, confidentiality=None):
         if not isinstance(query, str) or not query.strip():
             raise ValueError("query must be a non-empty string")
         if workspace not in {"personal", "work"}:
@@ -65,11 +65,20 @@ class LaosToolFacade:
             raise ValueError("project must be a non-empty string")
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
             raise ValueError("limit must be between 1 and 50")
+        if confidentiality is None:
+            confidentiality = "personal" if workspace == "personal" else "internal"
+        if confidentiality not in {"public", "personal", "internal", "restricted"}:
+            raise ValueError("confidentiality must be public, personal, internal or restricted")
 
-        values = {"query": query, "workspace": workspace}
+        values = {"query": query, "workspace": workspace, "confidentiality": confidentiality}
         if project is not None:
             values["project"] = project
-        result = self.application.run({"type": "memory.search", "input": values})
+        result = self.application.run({
+            "type": "memory.search",
+            "workspace": workspace,
+            "confidentiality": confidentiality,
+            "input": values,
+        })
         try:
             rows = result["output"]["results"]
         except (KeyError, TypeError) as exc:
@@ -183,7 +192,7 @@ class LaosToolFacade:
             master_perspectives=master_perspectives,
         )
 
-    def context_build(self, query, workspace, project=None, limit=8000):
+    def context_build(self, query, workspace, project=None, limit=8000, confidentiality=None):
         if not isinstance(query, str) or not query.strip():
             raise ValueError("query must be a non-empty string")
         if workspace not in {"personal", "work"}:
@@ -192,12 +201,26 @@ class LaosToolFacade:
             raise ValueError("project must be a non-empty string")
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise ValueError("limit must be a positive integer")
+        if confidentiality is None:
+            confidentiality = "personal" if workspace == "personal" else "internal"
+        if confidentiality not in {"public", "personal", "internal", "restricted"}:
+            raise ValueError("confidentiality must be public, personal, internal or restricted")
 
-        values = {"query": query, "workspace": workspace, "limit": limit}
+        values = {
+            "query": query,
+            "workspace": workspace,
+            "limit": limit,
+            "confidentiality": confidentiality,
+        }
         if project is not None:
             values["project"] = project
         result = self.application.run(
-            {"type": "context.build", "workspace": workspace, "input": values}
+            {
+                "type": "context.build",
+                "workspace": workspace,
+                "confidentiality": confidentiality,
+                "input": values,
+            }
         )
         try:
             output = result["output"]

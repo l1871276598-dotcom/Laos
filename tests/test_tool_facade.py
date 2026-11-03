@@ -96,10 +96,13 @@ class ToolFacadeTests(unittest.TestCase):
             [
                 {
                     "type": "memory.search",
+                    "workspace": "personal",
+                    "confidentiality": "personal",
                     "input": {
                         "query": "最少代码",
                         "workspace": "personal",
                         "project": "project-one",
+                        "confidentiality": "personal",
                     },
                 }
             ],
@@ -111,6 +114,7 @@ class ToolFacadeTests(unittest.TestCase):
             ("query", "personal", None, 0),
             ("query", "personal", None, 51),
             ("query", "personal", None, True),
+            ("query", "personal", None, 20, "invalid_conf"),
         ]:
             with self.subTest(values=values), self.assertRaises(ValueError):
                 facade.memory_search(*values)

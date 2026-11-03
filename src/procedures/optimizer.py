@@ -293,14 +293,19 @@ def mutate_procedure(proc_data: Dict[str, Any], diagnosis: Dict[str, Any]) -> st
     ]
 
     in_steps = False
+    found_steps = False
     for line in lines:
-        if line.startswith(("1.", "2.", "3.", "步骤", "- 步骤")):
+        if line.startswith("#"):
+            in_steps = False
+            continue
+        if re.match(r"^(\d+\.|\b步骤\s*\d+|- 步骤)", line):
             in_steps = True
+            found_steps = True
             sections.append(f"{line}")
         elif in_steps:
             sections.append(f"  {line}")
 
-    if not in_steps:
+    if not found_steps:
         sections.append("1. 环境检查与状态核对：确认当前运行环境正常且无僵尸进程占用。")
         sections.append("2. 核心规程操作：按标准指令序列逐步执行，记录输出结果。")
         sections.append("3. 产物与状态验证：核验操作目标与服务状态是否符合预期。")

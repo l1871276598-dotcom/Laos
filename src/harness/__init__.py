@@ -10,8 +10,18 @@ Follows the Khazix Agent-Autoloop & Karpathy Nano paradigm:
 - 50-second long-polling safe local worker
 - Single-writer entity lease concurrency lock
 - Event envelope & idempotency deduplication
+- 7-category high-risk Kill Gate
+- Immutable decision ledger ("Never Ask Twice")
+- Interactive approval card generation
 """
 
+from .approval_card import ApprovalCard
+from .decision_ledger import (
+    DecisionLedger,
+    DecisionRecord,
+    DecisionType,
+    NegativeDirectiveViolationError,
+)
 from .dispatch_queue import DispatchQueue
 from .envelope import (
     CircuitBreakerTrippedError,
@@ -27,6 +37,13 @@ from .event_envelope import (
     IdempotencyFilter,
 )
 from .journal import AppendOnlyJournal, JournalTamperError
+from .kill_gate import (
+    ActionProposal,
+    KillCategory,
+    KillGate,
+    KillGateInterceptedError,
+    KillInterceptResult,
+)
 from .lease import LeaseConflictError, LeaseInfo, LeaseManager
 from .pipeline import HarnessPipeline, PipelineResult, PipelineStatus
 from .probe import TruthProbe
@@ -54,8 +71,13 @@ from .types import (
 from .worker import LocalWorker
 
 __all__ = [
+    "ActionProposal",
     "AppendOnlyJournal",
+    "ApprovalCard",
     "CircuitBreakerTrippedError",
+    "DecisionLedger",
+    "DecisionRecord",
+    "DecisionType",
     "DispatchQueue",
     "DuplicateEventIgnored",
     "EnvelopeMalformedError",
@@ -68,10 +90,15 @@ __all__ = [
     "IdempotencyFilter",
     "JournalEvent",
     "JournalTamperError",
+    "KillCategory",
+    "KillGate",
+    "KillGateInterceptedError",
+    "KillInterceptResult",
     "LeaseConflictError",
     "LeaseInfo",
     "LeaseManager",
     "LocalWorker",
+    "NegativeDirectiveViolationError",
     "PhysicalWitness",
     "PipelineResult",
     "PipelineStatus",

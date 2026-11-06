@@ -5,9 +5,11 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import time
 import urllib.request
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from harness.approval_card import ApprovalCard
@@ -123,9 +125,23 @@ class FeishuChannel:
         secret: Optional[str] = None,
         dry_run: bool = False,
     ):
+        if webhook_url is None and not dry_run:
+            webhook_url = os.environ.get("FEISHU_WEBHOOK_URL")
+            if not webhook_url:
+                config_path = Path(__file__).resolve().parents[3] / "config" / "feishu.json"
+                if config_path.exists():
+                    try:
+                        with open(config_path, "r", encoding="utf-8") as f:
+                            cfg = json.load(f)
+                            webhook_url = cfg.get("webhook_url")
+                            if secret is None:
+                                secret = cfg.get("secret")
+                    except Exception:
+                        pass
+
         self.webhook_url = webhook_url
-        self.secret = secret
-        self.dry_run = dry_run or (webhook_url is None)
+        self.secret = secret or os.environ.get("FEISHU_SECRET")
+        self.dry_run = dry_run or (self.webhook_url is None)
         self.builder = FeishuCardBuilder()
 
     @staticmethod

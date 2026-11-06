@@ -33,3 +33,4 @@ TASK.md
 _system/*
 !_system/contracts/
 config/model_backend.json
+config/feishu.json

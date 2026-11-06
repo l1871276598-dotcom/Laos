@@ -1,0 +1,5 @@
+{
+  "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_WEBHOOK_UUID",
+  "secret": null,
+  "description": "LAOS Harness Feishu Interactive Card Delivery Webhook"
+}

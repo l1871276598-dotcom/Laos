@@ -161,13 +161,16 @@ def run_event(
             risk_category=intercept.category.value,
         )
 
-        feishu = FeishuChannel(dry_run=True)
+        feishu = FeishuChannel()
         res = feishu.send_approval_card(card)
-        print("   - 📱 飞书交互式卡片渲染就绪 (Dry-Run 模式):")
-        card_content = res["payload"]["card"]
-        print(f"     * 标题: {card_content['header']['title']['content']}")
-        print(f"     * 主题模板色: {card_content['header']['template']}")
-        print(f"     * 交互按钮数: {len(card_content['elements'][2]['actions'])} 个")
+        if res.get("status") == "success":
+            print(f"   - 📱 飞书交互式卡片已物理推送到您的飞书客户端！(HTTP {res.get('http_code')})")
+        else:
+            print("   - 📱 飞书交互式卡片渲染就绪 (Dry-Run 模式):")
+            card_content = res.get("payload", {}).get("card", {})
+            print(f"     * 标题: {card_content.get('header', {}).get('title', {}).get('content')}")
+            print(f"     * 主题模板色: {card_content.get('header', {}).get('template')}")
+            print(f"     * 交互按钮数: {len(card_content.get('elements', [{}, {}, {}])[2].get('actions', []))} 个")
 
         # Simulate Human Click "APPROVE"
         callback_payload = {

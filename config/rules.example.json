@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "description": "LAOS Production Agent Harness - Canonical Event Routing Rules",
+  "rules": [
+    {
+      "rule_id": "rule_git_pr_adversarial_review",
+      "description": "代码提交与PR对抗审查：异构模型交叉走读+瞬态沙箱全量跑测+物理见证盖章",
+      "match": {
+        "source": "github_webhook",
+        "event_type": "pull_request.opened"
+      },
+      "target_host": "local-mac",
+      "agent_adapter": "codex_local_agent",
+      "procedure_id": "proc_code_adversarial_review",
+      "token_budget": 60000,
+      "require_gate": false
+    },
+    {
+      "rule_id": "rule_high_risk_kill_gate_action",
+      "description": "高危动作人机网关：拦截删除生产数据/重启服务等操作，推送飞书卡片等待架构师批红",
+      "match": {
+        "source": "maintenance_bot",
+        "event_type": "database.schema_mutate"
+      },
+      "target_host": "local-mac",
+      "agent_adapter": "codex_local_agent",
+      "procedure_id": "proc_prod_database_migration",
+      "token_budget": 40000,
+      "require_gate": true
+    },
+    {
+      "rule_id": "rule_nightly_memory_distillation",
+      "description": "夜间记忆蒸馏：从Vault与会话Trace中提炼候选模式与决策沉淀",
+      "match": {
+        "source": "system_cron",
+        "event_type": "memory.nightly_distill"
+      },
+      "target_host": "local-mac",
+      "agent_adapter": "codex_distiller",
+      "procedure_id": "proc_memory_distillation",
+      "token_budget": 80000,
+      "require_gate": false
+    },
+    {
+      "rule_id": "rule_darwin_procedure_evolution",
+      "description": "Darwin 2.0 规程自进化：9维度SkillLens评测+双盲审裁判+爬山自优化",
+      "match": {
+        "source": "learning_loop",
+        "event_type": "procedure.darwin_optimize"
+      },
+      "target_host": "local-mac",
+      "agent_adapter": "darwin_optimizer",
+      "procedure_id": "proc_darwin_procedure_evolution",
+      "token_budget": 100000,
+      "require_gate": false
+    },
+    {
+      "rule_id": "rule_anti_entropy_health_sentinel",
+      "description": "反熵运维巡检：孤儿沙箱清理+超时排他租约自愈+死信事件清理",
+      "match": {
+        "source": "health_sentinel",
+        "event_type": "sentinel.hourly_sweep"
+      },
+      "target_host": "local-mac",
+      "agent_adapter": "health_sentinel_worker",
+      "procedure_id": "proc_anti_entropy_patrol",
+      "token_budget": 10000,
+      "require_gate": false
+    }
+  ]
+}

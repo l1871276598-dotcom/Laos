@@ -59,6 +59,7 @@ def run_event(
     high_risk: bool = False,
     journal_path: Optional[str] = None,
     ledger_path: Optional[str] = None,
+    rules_file: Optional[str] = None,
 ):
     print("=" * 72)
     print("🚀 LAOS 生产级 Agent Harness · 实际事件端到端驱动执行引擎")
@@ -77,19 +78,39 @@ def run_event(
     lease_mgr = LeaseManager()
     gate = KillGate()
 
-    # Default Rule Router
-    rules = [
-        {
-            "rule_id": "rule_harness_verification",
+    # Rule Router resolution: check custom rules file or default config
+    loaded_rules = []
+    default_cfg = ROOT / "config" / "rules.example.json"
+    rules_src = Path(rules_file) if rules_file else default_cfg
+    if rules_src.exists():
+        try:
+            with open(rules_src, "r", encoding="utf-8") as f:
+                loaded_rules = json.load(f).get("rules", [])
+        except Exception:
+            pass
+
+    # Ensure current event has at least a fallback rule if not explicitly matched
+    matched_rule = False
+    for r in loaded_rules:
+        m = r.get("match", {})
+        if (m.get("source") is None or m.get("source") == source) and (
+            m.get("event_type") is None or m.get("event_type") == event_type
+        ):
+            matched_rule = True
+            break
+
+    if not matched_rule:
+        loaded_rules.append({
+            "rule_id": f"rule_dynamic_{source}_{event_type}",
             "match": {"source": source, "event_type": event_type},
             "target_host": "local-mac",
             "agent_adapter": "codex_local_agent",
             "procedure_id": "proc_harness_runtime_audit",
             "token_budget": 50000,
             "require_gate": high_risk,
-        }
-    ]
-    router = RuleRouter({"rules": rules})
+        })
+
+    router = RuleRouter({"rules": loaded_rules})
 
     # 1. Event Ingestion
     print("\n📦 [1/6] 创建并封装统一事件信封 (Event Envelope)")
@@ -269,7 +290,31 @@ def main():
     parser.add_argument("--target", default="repo:codex", help="Target entity")
     parser.add_argument("--summary", default="Run real harness verification event", help="Event summary")
     parser.add_argument("--high-risk", action="store_true", help="Simulate high-risk Kill Gate interception")
+    parser.add_argument("--rules", default=None, help="Path to custom rules.json configuration")
+    parser.add_argument("--list-rules", action="store_true", help="List all canonical customizable rules")
     args = parser.parse_args()
+
+    if args.list_rules:
+        cfg = Path(args.rules) if args.rules else ROOT / "config" / "rules.example.json"
+        if not cfg.exists():
+            print(f"Rules file not found at {cfg}")
+            return 1
+        with open(cfg, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        print("=" * 72)
+        print(f"📋 LAOS 生产级 Agent Harness · 当前预置与可定制事件规则清单 ({cfg.name})")
+        print("=" * 72)
+        for idx, rule in enumerate(data.get("rules", []), 1):
+            m = rule.get("match", {})
+            gate_badge = "🔴 需要人机审批" if rule.get("require_gate") else "🟢 全自动流水线"
+            print(f"[{idx}] 规则 ID: {rule.get('rule_id')}")
+            print(f"    - 说明: {rule.get('description')}")
+            print(f"    - 触发匹配: source='{m.get('source')}', event_type='{m.get('event_type')}'")
+            print(f"    - 调度目标: host='{rule.get('target_host')}', agent='{rule.get('agent_adapter')}'")
+            print(f"    - 执行规程: {rule.get('procedure_id')} (Token 预算: {rule.get('token_budget')})")
+            print(f"    - 门禁机制: {gate_badge}")
+            print("-" * 72)
+        return 0
 
     result = run_event(
         source=args.source,
@@ -277,6 +322,7 @@ def main():
         target=args.target,
         summary=args.summary,
         high_risk=args.high_risk,
+        rules_file=args.rules,
     )
     return 0 if result["status"] == "success" else 1
 

@@ -201,18 +201,36 @@ def run_event(
             envelope=TrailingEnvelope(verdict=Verdict.SHIP, ttl=req.ttl - 1),
         )
 
-    # Step 2 runs actual architecture guard tests inside isolated sandbox
-    test_cmd = [
-        sys.executable,
-        "-m",
-        "unittest",
-        "discover",
-        "-s",
-        str(ROOT / "tests"),
-        "-p",
-        "test_harness_architecture_guards.py",
-    ]
-    probe_cmd = [sys.executable, "-c", "import sys; print('Probe Healthy'); sys.exit(0)"]
+    # Step 2 & 5 dynamic physical commands based on event domain
+    mem_root = Path("/Users/user/Library/Mobile Documents/com~apple~CloudDocs/ResearchAgent")
+    if "memory" in event_type and mem_root.exists():
+        test_cmd = [
+            sys.executable,
+            str(ROOT / "src" / "memory.py"),
+            "doctor",
+            "--root",
+            str(mem_root),
+        ]
+        probe_cmd = [
+            sys.executable,
+            str(ROOT / "src" / "memory_distill.py"),
+            "review",
+            "--root",
+            str(mem_root),
+            "--json",
+        ]
+    else:
+        test_cmd = [
+            sys.executable,
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            str(ROOT / "tests"),
+            "-p",
+            "test_harness_architecture_guards.py",
+        ]
+        probe_cmd = [sys.executable, "-c", "import sys; print('Probe Healthy'); sys.exit(0)"]
 
     deployed = False
 

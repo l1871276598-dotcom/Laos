@@ -15,6 +15,11 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 try:
+    import sqlite_vec
+except ImportError:
+    sqlite_vec = None
+
+try:
     from platform_paths import default_state_dir, known_sync_roots
 except ModuleNotFoundError:
     from src.platform_paths import default_state_dir, known_sync_roots
@@ -180,6 +185,8 @@ FILES = {
 }
 DB_NAME = "memory.sqlite"
 DB_SCHEMA_VERSION = 3
+DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
+VECTOR_DIM = 512
 STATE_DIR_ERROR = "SQLite state directory must be local and outside iCloud and the code repository."
 MEMORIES_COLUMNS = [
     "id",
@@ -1324,6 +1331,80 @@ def check_state_dir(root, state_dir):
     return state, db
 
 
+_EMBEDDING_MODEL_CACHE = {}
+
+
+def _load_vector_extension(conn):
+    if sqlite_vec is not None:
+        try:
+            conn.enable_load_extension(True)
+            sqlite_vec.load(conn)
+        except Exception:
+            pass
+        finally:
+            try:
+                conn.enable_load_extension(False)
+            except Exception:
+                pass
+
+
+def _has_vector_extension(conn):
+    if sqlite_vec is None:
+        return False
+    try:
+        conn.execute("SELECT vec_version()")
+        return True
+    except Exception:
+        return False
+
+
+def _create_vector_schema(conn):
+    _load_vector_extension(conn)
+    if _has_vector_extension(conn):
+        conn.execute(
+            f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS memory_vectors USING vec0(
+                id TEXT PRIMARY KEY,
+                embedding float[{VECTOR_DIM}] distance_metric=cosine
+            );
+            """
+        )
+
+
+def _ensure_vector_table(conn):
+    _create_vector_schema(conn)
+
+
+def _get_embedding_model(model_name=DEFAULT_EMBEDDING_MODEL):
+    if model_name not in _EMBEDDING_MODEL_CACHE:
+        try:
+            from fastembed import TextEmbedding
+
+            _EMBEDDING_MODEL_CACHE[model_name] = TextEmbedding(model_name=model_name)
+        except Exception:
+            _EMBEDDING_MODEL_CACHE[model_name] = None
+    return _EMBEDDING_MODEL_CACHE[model_name]
+
+
+def _compute_embeddings(texts, model_name=DEFAULT_EMBEDDING_MODEL):
+    if not texts:
+        return []
+    model = _get_embedding_model(model_name)
+    if model is None:
+        return None
+    try:
+        return list(model.embed(texts))
+    except Exception:
+        return None
+
+
+def _compute_query_embedding(query, model_name=DEFAULT_EMBEDDING_MODEL):
+    vecs = _compute_embeddings([query], model_name=model_name)
+    if vecs and len(vecs) > 0:
+        return vecs[0]
+    return None
+
+
 def _configure_sqlite(conn):
     conn.execute("PRAGMA foreign_keys = ON")
     mode = conn.execute("PRAGMA journal_mode = WAL").fetchone()[0]
@@ -1331,6 +1412,7 @@ def _configure_sqlite(conn):
         raise ValueError("SQLite journal_mode WAL could not be enabled.")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA busy_timeout = 5000")
+    _load_vector_extension(conn)
 
 
 def _create_document_schema(conn):
@@ -1418,6 +1500,7 @@ def _create_schema(conn):
         """
     )
     _create_document_schema(conn)
+    _create_vector_schema(conn)
     conn.execute(f"PRAGMA user_version = {DB_SCHEMA_VERSION}")
 
 
@@ -2396,16 +2479,19 @@ def check_document_index_consistency(conn, expected_count):
         raise ValueError("SQLite document index consistency check failed.")
 
 
-def apply_index_changes(conn, plan, expected_count):
+def apply_index_changes(conn, plan, expected_count, with_embeddings=False):
     indexed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     for item in plan["deleted"]:
         if item["id"]:
             conn.execute("DELETE FROM memory_fts WHERE id = ?", (item["id"],))
             conn.execute("DELETE FROM memories WHERE id = ?", (item["id"],))
+            if _has_vector_extension(conn):
+                conn.execute("DELETE FROM memory_vectors WHERE id = ?", (item["id"],))
         conn.execute("DELETE FROM memories WHERE relative_path = ?", (item["relative_path"],))
         conn.execute("DELETE FROM index_state WHERE relative_path = ?", (item["relative_path"],))
 
-    for item in plan["added"] + plan["updated"]:
+    to_index = plan["added"] + plan["updated"]
+    for item in to_index:
         memory_id = item["record"]["id"]
         old = plan["state"]["memories_by_id"].get(memory_id)
         if old and old["relative_path"] != item["relative_path"]:
@@ -2417,22 +2503,39 @@ def apply_index_changes(conn, plan, expected_count):
         for (conflict_id,) in conflicts:
             conn.execute("DELETE FROM memory_fts WHERE id = ?", (conflict_id,))
             conn.execute("DELETE FROM memories WHERE id = ?", (conflict_id,))
+            if _has_vector_extension(conn):
+                conn.execute("DELETE FROM memory_vectors WHERE id = ?", (conflict_id,))
         conn.execute("DELETE FROM memory_fts WHERE id = ?", (memory_id,))
+        if _has_vector_extension(conn):
+            conn.execute("DELETE FROM memory_vectors WHERE id = ?", (memory_id,))
         _upsert_memory(conn, item, indexed_at)
+
+    if with_embeddings and _has_vector_extension(conn) and to_index:
+        texts = [f"{item['record']['title']}\n{item['record']['content']}" for item in to_index]
+        vecs = _compute_embeddings(texts)
+        if vecs:
+            for item, vec in zip(to_index, vecs):
+                conn.execute(
+                    "INSERT INTO memory_vectors(id, embedding) VALUES (?, ?)",
+                    (item["record"]["id"], sqlite_vec.serialize_float32(vec)),
+                )
 
     check_index_consistency(conn, expected_count)
 
 
-def apply_document_changes(conn, plan, expected_count):
+def apply_document_changes(conn, plan, expected_count, with_embeddings=False):
     indexed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     for item in plan["deleted"]:
         if item["id"]:
             conn.execute("DELETE FROM document_fts WHERE id = ?", (item["id"],))
             conn.execute("DELETE FROM documents WHERE id = ?", (item["id"],))
+            if _has_vector_extension(conn):
+                conn.execute("DELETE FROM memory_vectors WHERE id = ?", (item["id"],))
         conn.execute("DELETE FROM documents WHERE relative_path = ?", (item["relative_path"],))
         conn.execute("DELETE FROM document_index_state WHERE relative_path = ?", (item["relative_path"],))
 
-    for item in plan["added"] + plan["updated"]:
+    to_index = plan["added"] + plan["updated"]
+    for item in to_index:
         document_id = item["id"]
         old = plan["state"]["documents_by_id"].get(document_id)
         if old and old["relative_path"] != item["relative_path"]:
@@ -2444,8 +2547,22 @@ def apply_document_changes(conn, plan, expected_count):
         for (conflict_id,) in conflicts:
             conn.execute("DELETE FROM document_fts WHERE id = ?", (conflict_id,))
             conn.execute("DELETE FROM documents WHERE id = ?", (conflict_id,))
+            if _has_vector_extension(conn):
+                conn.execute("DELETE FROM memory_vectors WHERE id = ?", (conflict_id,))
         conn.execute("DELETE FROM document_fts WHERE id = ?", (document_id,))
+        if _has_vector_extension(conn):
+            conn.execute("DELETE FROM memory_vectors WHERE id = ?", (document_id,))
         _upsert_document(conn, item, indexed_at)
+
+    if with_embeddings and _has_vector_extension(conn) and to_index:
+        texts = [f"{item['title']}\n{item['content']}" for item in to_index]
+        vecs = _compute_embeddings(texts)
+        if vecs:
+            for item, vec in zip(to_index, vecs):
+                conn.execute(
+                    "INSERT INTO memory_vectors(id, embedding) VALUES (?, ?)",
+                    (item["id"], sqlite_vec.serialize_float32(vec)),
+                )
 
     check_document_index_consistency(conn, expected_count)
 
@@ -2464,10 +2581,14 @@ def index_store(args):
     if not summary["initialized"]:
         raise ValueError("Database is not initialized. Run db-init first.")
 
+    with_embeddings = getattr(args, "embeddings", False) or os.environ.get("LAOS_EMBEDDINGS") == "1"
     items = _current_index_items(root, records)
     document_items = collect_document_items(root)
     with closing(sqlite3.connect(db)) as conn:
+        _load_vector_extension(conn)
         conn.execute("PRAGMA busy_timeout = 5000")
+        if with_embeddings:
+            _ensure_vector_table(conn)
         plan = plan_index_changes(conn, items)
         document_plan = plan_document_changes(conn, document_items)
         result = {
@@ -2494,8 +2615,32 @@ def index_store(args):
             return result
         try:
             conn.execute("BEGIN")
-            apply_index_changes(conn, plan, len(items) + plan["state"]["preserved_legacy"])
-            apply_document_changes(conn, document_plan, len(document_items))
+            apply_index_changes(conn, plan, len(items) + plan["state"]["preserved_legacy"], with_embeddings=with_embeddings)
+            apply_document_changes(conn, document_plan, len(document_items), with_embeddings=with_embeddings)
+            if with_embeddings and _has_vector_extension(conn):
+                existing_vec_ids = {r[0] for r in conn.execute("SELECT id FROM memory_vectors")}
+                missing_memories = [item for item in items if item["record"]["id"] not in existing_vec_ids]
+                if missing_memories:
+                    texts = [f"{item['record']['title']}\n{item['record']['content']}" for item in missing_memories]
+                    vecs = _compute_embeddings(texts)
+                    if vecs:
+                        for item, vec in zip(missing_memories, vecs):
+                            conn.execute("DELETE FROM memory_vectors WHERE id = ?", (item["record"]["id"],))
+                            conn.execute(
+                                "INSERT INTO memory_vectors(id, embedding) VALUES (?, ?)",
+                                (item["record"]["id"], sqlite_vec.serialize_float32(vec)),
+                            )
+                missing_docs = [item for item in document_items if item["id"] not in existing_vec_ids]
+                if missing_docs:
+                    texts = [f"{item['title']}\n{item['content']}" for item in missing_docs]
+                    vecs = _compute_embeddings(texts)
+                    if vecs:
+                        for item, vec in zip(missing_docs, vecs):
+                            conn.execute("DELETE FROM memory_vectors WHERE id = ?", (item["id"],))
+                            conn.execute(
+                                "INSERT INTO memory_vectors(id, embedding) VALUES (?, ?)",
+                                (item["id"], sqlite_vec.serialize_float32(vec)),
+                            )
             conn.commit()
         except Exception:
             conn.rollback()
@@ -2547,17 +2692,11 @@ def _index_fresh(conn, memory_items, document_items):
     return current_memory == indexed_memory and current_documents == indexed_documents
 
 
-def _search_memory(conn, args, query):
-    conditions = ["memory_fts MATCH ?"]
-    values = [query]
-    if "tier" in _table_columns(conn, "memories"):
-        conditions.append("m.tier != 'recent'")
+def _memory_sql_filters(args):
+    conditions = []
+    values = []
     if not getattr(args, "include_restricted", False):
         conditions.append("COALESCE(m.confidentiality, '') != 'restricted'")
-    # GP9-02: a caller confidentiality ceiling excludes records MORE
-    # confidential than the ceiling (public < personal < internal < restricted),
-    # so a public-ceiling profile cannot read internal notes under the same
-    # workspace/project.
     ceiling = getattr(args, "confidentiality", None)
     if ceiling:
         ceiling_rank = _CONFIDENTIALITY_RANK.get(ceiling)
@@ -2592,7 +2731,17 @@ def _search_memory(conn, args, query):
     conditions.append("(m.valid_from IS NULL OR m.valid_from <= ?)")
     conditions.append("(m.valid_until IS NULL OR m.valid_until >= ?)")
     values.extend([as_of, as_of])
-    values.append(args.limit)
+    return conditions, values, as_of
+
+
+def _search_memory_bm25(conn, args, query):
+    filter_conditions, filter_values, as_of = _memory_sql_filters(args)
+    conditions = ["memory_fts MATCH ?"] + filter_conditions
+    values = [query] + filter_values
+    if "tier" in _table_columns(conn, "memories"):
+        conditions.append("m.tier != 'recent'")
+    limit = args.limit * 3 if getattr(args, "mode", "lexical") == "hybrid" else args.limit
+    values.append(limit)
     sql = f"""
         SELECT m.id, m.title, m.type, m.status, m.scope, m.workspace, m.confidentiality,
                m.project, m.context_id, m.valid_from, m.valid_until, m.updated, m.relative_path,
@@ -2605,16 +2754,97 @@ def _search_memory(conn, args, query):
         LIMIT ?
     """
     rows = []
-    for index, row in enumerate(conn.execute(sql, values), start=1):
+    for row in conn.execute(sql, values):
         data = dict(row)
-        data.update({"kind": "memory", "source_kind": "memory", "score": 1.20 / (60 + index), "temporal_status": temporal_status(data, as_of)})
+        data.update({"kind": "memory", "source_kind": "memory", "temporal_status": temporal_status(data, as_of)})
         rows.append(data)
     return rows
 
 
-def _search_documents(conn, args, query):
-    conditions = ["document_fts MATCH ?"]
-    values = [query]
+def _search_memory_vector(conn, args, query_vector, k=500):
+    filter_conditions, filter_values, as_of = _memory_sql_filters(args)
+    conditions = ["v.embedding MATCH ?", "v.k = ?"] + filter_conditions
+    values = [sqlite_vec.serialize_float32(query_vector), k] + filter_values
+    if "tier" in _table_columns(conn, "memories"):
+        conditions.append("m.tier != 'recent'")
+    limit = args.limit * 3 if getattr(args, "mode", "lexical") == "hybrid" else args.limit
+    values.append(limit)
+    sql = f"""
+        SELECT m.id, m.title, m.content, m.type, m.status, m.scope, m.workspace, m.confidentiality,
+               m.project, m.context_id, m.valid_from, m.valid_until, m.updated, m.relative_path,
+               v.distance
+        FROM memory_vectors AS v
+        JOIN memories AS m ON m.id = v.id
+        WHERE {' AND '.join(conditions)}
+        ORDER BY v.distance ASC, m.updated DESC, m.id
+        LIMIT ?
+    """
+    rows = []
+    for row in conn.execute(sql, values):
+        data = dict(row)
+        content = data.pop("content", "") or ""
+        data["excerpt"] = content[:100].strip() + ("…" if len(content) > 100 else "")
+        data.update({"kind": "memory", "source_kind": "memory", "temporal_status": temporal_status(data, as_of)})
+        rows.append(data)
+    return rows
+
+
+def _rrf_fuse(bm25_rows, vec_rows, w_bm25=1.0, w_vec=1.0):
+    combined = {}
+    for rank_1, row in enumerate(bm25_rows, start=1):
+        item_id = row["id"]
+        combined[item_id] = {
+            "data": dict(row),
+            "score": w_bm25 / (60.0 + rank_1),
+        }
+    for rank_1, row in enumerate(vec_rows, start=1):
+        item_id = row["id"]
+        vec_score = w_vec / (60.0 + rank_1)
+        if item_id in combined:
+            combined[item_id]["score"] += vec_score
+            if not combined[item_id]["data"].get("excerpt"):
+                combined[item_id]["data"]["excerpt"] = row.get("excerpt")
+        else:
+            combined[item_id] = {
+                "data": dict(row),
+                "score": vec_score,
+            }
+    fused_rows = []
+    for item in combined.values():
+        row_data = item["data"]
+        row_data["score"] = item["score"]
+        fused_rows.append(row_data)
+    return fused_rows
+
+
+def _search_memory(conn, args, query, mode="lexical", query_vector=None):
+    if mode == "semantic":
+        if query_vector is None:
+            query_vector = _compute_query_embedding(getattr(args, "query", query))
+        if query_vector is None or not _has_vector_extension(conn):
+            return _search_memory(conn, args, query, mode="lexical")
+        rows = _search_memory_vector(conn, args, query_vector)
+        for index, data in enumerate(rows, start=1):
+            data["score"] = 1.20 / (60.0 + index)
+        return rows
+    elif mode == "hybrid":
+        if query_vector is None:
+            query_vector = _compute_query_embedding(getattr(args, "query", query))
+        if query_vector is None or not _has_vector_extension(conn):
+            return _search_memory(conn, args, query, mode="lexical")
+        bm25_rows = _search_memory_bm25(conn, args, query)
+        vec_rows = _search_memory_vector(conn, args, query_vector)
+        return _rrf_fuse(bm25_rows, vec_rows, w_bm25=1.20, w_vec=1.20)
+    else:
+        rows = _search_memory_bm25(conn, args, query)
+        for index, data in enumerate(rows, start=1):
+            data["score"] = 1.20 / (60.0 + index)
+        return rows
+
+
+def _document_sql_filters(args):
+    conditions = []
+    values = []
     if not getattr(args, "include_restricted", False):
         conditions.append("COALESCE(d.confidentiality, '') != 'restricted'")
     ceiling = getattr(args, "confidentiality", None)
@@ -2642,7 +2872,15 @@ def _search_documents(conn, args, query):
     if args.workspace:
         conditions.append("d.workspace = ?")
         values.append(args.workspace)
-    values.append(args.limit)
+    return conditions, values
+
+
+def _search_documents_bm25(conn, args, query):
+    filter_conditions, filter_values = _document_sql_filters(args)
+    conditions = ["document_fts MATCH ?"] + filter_conditions
+    values = [query] + filter_values
+    limit = args.limit * 3 if getattr(args, "mode", "lexical") == "hybrid" else args.limit
+    values.append(limit)
     sql = f"""
         SELECT d.id, d.source_kind, d.title, NULL AS type, NULL AS status, NULL AS scope,
                d.workspace, d.confidentiality, d.project, d.context_id,
@@ -2656,11 +2894,63 @@ def _search_documents(conn, args, query):
         LIMIT ?
     """
     rows = []
-    for index, row in enumerate(conn.execute(sql, values), start=1):
+    for row in conn.execute(sql, values):
         data = dict(row)
-        data.update({"kind": "document", "score": 1.00 / (60 + index), "temporal_status": "current"})
+        data.update({"kind": "document", "temporal_status": "current"})
         rows.append(data)
     return rows
+
+
+def _search_documents_vector(conn, args, query_vector, k=500):
+    filter_conditions, filter_values = _document_sql_filters(args)
+    conditions = ["v.embedding MATCH ?", "v.k = ?"] + filter_conditions
+    values = [sqlite_vec.serialize_float32(query_vector), k] + filter_values
+    limit = args.limit * 3 if getattr(args, "mode", "lexical") == "hybrid" else args.limit
+    values.append(limit)
+    sql = f"""
+        SELECT d.id, d.source_kind, d.title, d.content, NULL AS type, NULL AS status, NULL AS scope,
+               d.workspace, d.confidentiality, d.project, d.context_id,
+               NULL AS valid_from, NULL AS valid_until, d.updated, d.relative_path,
+               v.distance
+        FROM memory_vectors AS v
+        JOIN documents AS d ON d.id = v.id
+        WHERE {' AND '.join(conditions)}
+        ORDER BY v.distance ASC, d.updated DESC, d.id
+        LIMIT ?
+    """
+    rows = []
+    for row in conn.execute(sql, values):
+        data = dict(row)
+        content = data.pop("content", "") or ""
+        data["excerpt"] = content[:100].strip() + ("…" if len(content) > 100 else "")
+        data.update({"kind": "document", "temporal_status": "current"})
+        rows.append(data)
+    return rows
+
+
+def _search_documents(conn, args, query, mode="lexical", query_vector=None):
+    if mode == "semantic":
+        if query_vector is None:
+            query_vector = _compute_query_embedding(getattr(args, "query", query))
+        if query_vector is None or not _has_vector_extension(conn):
+            return _search_documents(conn, args, query, mode="lexical")
+        rows = _search_documents_vector(conn, args, query_vector)
+        for index, data in enumerate(rows, start=1):
+            data["score"] = 1.00 / (60.0 + index)
+        return rows
+    elif mode == "hybrid":
+        if query_vector is None:
+            query_vector = _compute_query_embedding(getattr(args, "query", query))
+        if query_vector is None or not _has_vector_extension(conn):
+            return _search_documents(conn, args, query, mode="lexical")
+        bm25_rows = _search_documents_bm25(conn, args, query)
+        vec_rows = _search_documents_vector(conn, args, query_vector)
+        return _rrf_fuse(bm25_rows, vec_rows, w_bm25=1.00, w_vec=1.00)
+    else:
+        rows = _search_documents_bm25(conn, args, query)
+        for index, data in enumerate(rows, start=1):
+            data["score"] = 1.00 / (60.0 + index)
+        return rows
 
 
 def search_store(args):
@@ -2673,7 +2963,6 @@ def search_store(args):
     if not summary["initialized"]:
         raise ValueError("Database is not initialized. Run db-init and index first.")
 
-    query = _fts_query(args.query)
     root, records, errors, _ = collect_validated_records(root)
     if errors:
         messages = [f"ERROR {rel_path}: {message}" for rel_path, message in errors]
@@ -2681,24 +2970,71 @@ def search_store(args):
     memory_items = _current_index_items(root, records)
     document_items = collect_document_items(root)
     with closing(sqlite3.connect(db)) as conn:
+        _load_vector_extension(conn)
         conn.row_factory = sqlite3.Row
         if not _index_fresh(conn, memory_items, document_items):
             raise ValueError("Search aborted because the index is stale. Run index first.")
+        
+        requested_mode = getattr(args, "mode", "lexical")
+        effective_mode, warnings = search_mode_summary(requested_mode, conn=conn)
+
+        query = _fts_query(args.query) if effective_mode in {"lexical", "hybrid"} else args.query
+        query_vector = None
+        if effective_mode in {"semantic", "hybrid"}:
+            query_vector = _compute_query_embedding(args.query)
+            if query_vector is None:
+                effective_mode = "lexical"
+                query = _fts_query(args.query)
+
         rows = []
         if args.kind in {"all", "memory"} and not args.source_kind:
-            rows.extend(_search_memory(conn, args, query))
+            rows.extend(_search_memory(conn, args, query, mode=effective_mode, query_vector=query_vector))
         if args.kind in {"all", "document"}:
-            rows.extend(_search_documents(conn, args, query))
+            rows.extend(_search_documents(conn, args, query, mode=effective_mode, query_vector=query_vector))
     rows.sort(key=lambda row: (-row["score"], row["kind"], row["id"]))
     return rows[: args.limit]
 
 
-def search_mode_summary(requested_mode):
+def _has_vector_support(conn=None, state_dir=None, root=None):
+    if sqlite_vec is None:
+        return False
+    if conn is not None:
+        try:
+            _load_vector_extension(conn)
+            has_table = conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memory_vectors'"
+            ).fetchone()[0]
+            if not has_table:
+                return False
+            count = conn.execute("SELECT COUNT(*) FROM memory_vectors").fetchone()[0]
+            return count > 0
+        except Exception:
+            return False
+    db_path = None
+    if state_dir:
+        db_path = Path(state_dir) / DB_NAME
+    elif root:
+        try:
+            from platform_paths import default_state_dir
+        except ModuleNotFoundError:
+            from src.platform_paths import default_state_dir
+        db_path = default_state_dir() / DB_NAME
+    if db_path and db_path.exists():
+        try:
+            with closing(sqlite3.connect(db_path)) as temp_conn:
+                return _has_vector_support(conn=temp_conn)
+        except Exception:
+            return False
+    return False
+
+
+def search_mode_summary(requested_mode, conn=None, state_dir=None, root=None):
     warnings = []
     effective_mode = requested_mode
     if requested_mode in {"semantic", "hybrid"}:
-        warnings.append(f"{requested_mode} search unavailable; falling back to lexical")
-        effective_mode = "lexical"
+        if not _has_vector_support(conn=conn, state_dir=state_dir, root=root):
+            warnings.append(f"{requested_mode} search unavailable; falling back to lexical")
+            effective_mode = "lexical"
     return effective_mode, warnings
 
 
@@ -3143,7 +3479,11 @@ def _p95(values):
 
 def evaluate_search(args):
     cases = _load_eval_cases(args.cases)
-    mode, warnings = search_mode_summary(args.mode)
+    mode, warnings = search_mode_summary(
+        args.mode,
+        state_dir=getattr(args, "state_dir", None),
+        root=getattr(args, "root", None),
+    )
     top1 = top5 = no_result = project_leaks = restricted_leaks = synonym_hits = synonym_total = 0
     latencies = []
     for case in cases:
@@ -3264,6 +3604,7 @@ def build_parser():
         help="Local state directory for memory.sqlite.",
     )
     index_parser.add_argument("--dry-run", action="store_true")
+    index_parser.add_argument("--embeddings", action="store_true", help="Generate vector embeddings for memories and documents.")
 
     search_parser = subparsers.add_parser("search", help="Search memories and indexed documents.")
     search_parser.add_argument("query")
@@ -3443,15 +3784,21 @@ def main(argv=None):
             print(f"Database: {summary['database']}")
             return 0
         if args.command == "search":
-            effective_mode, warnings = search_mode_summary(args.mode)
+            requested_mode = args.mode
+            effective_mode, warnings = search_mode_summary(
+                requested_mode,
+                state_dir=getattr(args, "state_dir", None),
+                root=getattr(args, "root", None),
+            )
             for warning in warnings:
                 print(warning, file=sys.stderr)
+            args.mode = effective_mode
             rows = search_store(args)
             if args.json:
                 print(
                     json.dumps(
                         {
-                            "requested_mode": args.mode,
+                            "requested_mode": requested_mode,
                             "effective_mode": effective_mode,
                             "warnings": warnings,
                             "results": rows,
@@ -3461,7 +3808,7 @@ def main(argv=None):
                     )
                 )
             else:
-                print(f"Requested mode: {args.mode}")
+                print(f"Requested mode: {requested_mode}")
                 print(f"Effective mode: {effective_mode}")
                 for warning in warnings:
                     print(f"Warning: {warning}")

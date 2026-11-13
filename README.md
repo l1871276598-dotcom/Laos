@@ -2,7 +2,7 @@
 
 LAOS is a local-first, auditable, human-governed memory and learning layer for AI agents. It keeps structured memory, project context, task evidence, reflections, and reusable principles in user-controlled files with rebuildable indexes, so GPT, Codex, Claude, local models, and other agents can reuse knowledge without bypassing human review.
 
-**Current release:** [v0.13.0](https://github.com/l1871276598-dotcom/research-agent-memory/releases/tag/v0.13.0) · Python 3.11+ · macOS acceptance target · [MIT](LICENSE)
+**Current release:** [v0.14.0](https://github.com/l1871276598-dotcom/research-agent-memory/releases/tag/v0.14.0) · Python 3.11+ · macOS acceptance target · [MIT](LICENSE)
 
 [Reproducible local demo](#reproducible-local-demo) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -14,9 +14,9 @@ LAOS is a local-first, auditable, human-governed memory and learning layer for A
 - **Model independence:** GPT, Codex, Claude, local models, and other agents can use the same governed knowledge layer.
 - **Fail-closed isolation:** workspace, project, confidentiality, and restricted-data boundaries reject mismatches or exclude data by default.
 
-## Current capabilities (v0.13.0)
+## Current capabilities (v0.14.0)
 
-v0.13.0 includes Memory Core, a unified 12-agent JSON CLI, a deterministic learning chain, ADR-007 Heuristic Pattern Engine & Token Ledger, controlled conversation review, MCP checkpoint & FastMCP server suite, and **Darwin 2.0 Procedure Autonomous Evolution with Nuwa Master Cognitive Distillation**. It provides no autonomous approval, passive browser capture, multi-user authorization, or production deployment outside the local trusted-operator boundary.
+v0.14.0 includes Memory Core, native `sqlite-vec` vector extension with BM25 + Vector RRF (Reciprocal Rank Fusion) hybrid retrieval, a unified 12-agent JSON CLI, a deterministic learning chain, ADR-007 Heuristic Pattern Engine & Token Ledger, controlled conversation review, MCP checkpoint & FastMCP server suite, and **Darwin 2.0 Procedure Autonomous Evolution with Nuwa Master Cognitive Distillation**. It provides no autonomous approval, passive browser capture, multi-user authorization, or production deployment outside the local trusted-operator boundary.
 
 ## Reproducible local demo
 
@@ -79,7 +79,7 @@ LAOS 是一个本地优先、可审计、人工审核受控的 Agent 记忆与�
 
 ## 当前版本
 
-- 当前正式版本：`v0.13.0`
+- 当前正式版本：`v0.14.0`
 - SQLite schema：`v3`
 - Python：`3.11+`
 - 当前验收平台：macOS
@@ -94,11 +94,15 @@ LAOS 是一个本地优先、可审计、人工审核受控的 Agent 记忆与�
 
 > 上一版 `v0.9.0`：PR #29 squash merge（合并提交 `c21da74d`），Stage 17 本地 508 项测试，详见 `docs/progress/2026-07-06-v0.9.0-release-preparation.md`。
 
-## 已实现能力（截至 v0.13.0）
+## 已实现能力（截至 v0.14.0）
 
 ### Memory Core 与安全边界
 
-- Markdown / JSONL 权威数据源与可重建 SQLite FTS5 索引
+- Markdown / JSONL 权威数据源与单文件 SQLite 数据库架构（零外部服务依赖）
+- 可重建 SQLite FTS5 全文索引与 `sqlite-vec` (C 原生扩展, `vec0` 虚拟表) 向量检索
+- 本地轻量 Embedding 运行时（`fastembed` + ONNX `bge-small-zh-v1.5` 512 维，免大型环境依赖）
+- BM25 + 向量余弦相似度 RRF (Reciprocal Rank Fusion) 混合检索打分，支持 `--mode lexical|semantic|hybrid`
+- 检索时在 SQL 层面无缝复用 `confidentiality`、`workspace`、`project` 等分区与安全隔离约束
 - ChatGPT 官方 ZIP 手动导入与手动文件归档
 - 结构化记忆、workspace / project / confidentiality / 时间有效性
 - candidate-only 创建与统一 Review Gate
@@ -217,14 +221,13 @@ LAOS 通过 FastMCP（stdio）向 Claude Code / Cursor / Antigravity 提供统�
 7. MCP、HTTP 和 Bridge 服务只适用于本地可信操作者；当前没有多用户认证和能力授权。
 8. 真实记忆、数据库、PDF、日志、缓存、凭据和受限资料不得提交到 GitHub。
 
-## 当前不实现的能力（v0.10.0 范围外）
+## 当前不实现的能力（v0.14.0 范围外）
 
 - 浏览器侧被动、无损 ChatGPT 对话采集
 - 自动 policy approval
 - 自动 candidate accept 或 active-memory promotion
 - 无人值守后台重试或自主任务执行
 - 语义冲突自动解决
-- 真实向量数据库和 embedding 检索
 - 多用户认证与 owner/agent 授权
 - GUI、Web 前端或桌面应用
 - 大型自主 Coordinator / Meta Planner

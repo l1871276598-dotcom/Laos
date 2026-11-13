@@ -2369,8 +2369,8 @@ class ProjectGovernanceCommandTests(unittest.TestCase):
     def run_db_init(self, root, state_dir):
         return self.run_cli("db-init", "--root", str(root), "--state-dir", str(state_dir))
 
-    def run_index(self, root, state_dir):
-        return self.run_cli("index", "--root", str(root), "--state-dir", str(state_dir))
+    def run_index(self, root, state_dir, *extra):
+        return self.run_cli("index", "--root", str(root), "--state-dir", str(state_dir), *extra)
 
     def run_add(self, root, memory_type="principle", title="记忆", scope="global", content="内容", **kwargs):
         status = kwargs.pop("status", "active")
@@ -2572,8 +2572,8 @@ class ContextPackCommandTests(unittest.TestCase):
     def run_db_init(self, root, state_dir):
         return self.run_cli("db-init", "--root", str(root), "--state-dir", str(state_dir))
 
-    def run_index(self, root, state_dir):
-        return self.run_cli("index", "--root", str(root), "--state-dir", str(state_dir))
+    def run_index(self, root, state_dir, *extra):
+        return self.run_cli("index", "--root", str(root), "--state-dir", str(state_dir), *extra)
 
     def run_add(self, root, memory_type="principle", title="记忆", scope="global", content="内容", **kwargs):
         args = [
@@ -2701,6 +2701,29 @@ class ContextPackCommandTests(unittest.TestCase):
             self.assertIn("PDC markdown memory", text)
 
 
+
+def _has_sqlite_vec_support():
+    try:
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        if not hasattr(conn, "enable_load_extension"):
+            conn.close()
+            return False
+        import sqlite_vec
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        conn.execute("SELECT vec_version()")
+        conn.close()
+        import fastembed
+        return True
+    except Exception:
+        return False
+
+
+HAS_SQLITE_VEC_AND_FASTEMBED = _has_sqlite_vec_support()
+
+
 class RetrievalEvaluationCommandTests(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run(
@@ -2716,8 +2739,8 @@ class RetrievalEvaluationCommandTests(unittest.TestCase):
     def run_db_init(self, root, state_dir):
         return self.run_cli("db-init", "--root", str(root), "--state-dir", str(state_dir))
 
-    def run_index(self, root, state_dir):
-        return self.run_cli("index", "--root", str(root), "--state-dir", str(state_dir))
+    def run_index(self, root, state_dir, *extra):
+        return self.run_cli("index", "--root", str(root), "--state-dir", str(state_dir), *extra)
 
     def run_add(self, root, title, content, **kwargs):
         args = [
@@ -2805,6 +2828,116 @@ class RetrievalEvaluationCommandTests(unittest.TestCase):
             self.assertEqual(payload["effective_mode"], "lexical")
             self.assertTrue(payload["warnings"])
             self.assertIn("falling back to lexical", result.stderr)
+
+    @unittest.skipUnless(HAS_SQLITE_VEC_AND_FASTEMBED, "sqlite_vec extension or fastembed not available in environment")
+    def test_index_embeddings_populates_memory_vectors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, state_dir = self.setup_store(tmp)
+            self.run_add(root, "代码最少原则", "使用尽可能少的代码实现相同功能。")
+            self.assertEqual(self.run_index(root, state_dir, "--embeddings").returncode, 0)
+
+            db_path = state_dir / "memory.sqlite"
+            self.assertTrue(db_path.exists())
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.enable_load_extension(True)
+                import sqlite_vec
+                sqlite_vec.load(conn)
+                conn.enable_load_extension(False)
+                count = conn.execute("SELECT COUNT(*) FROM memory_vectors").fetchone()[0]
+                self.assertGreater(count, 0)
+            finally:
+                conn.close()
+
+    @unittest.skipUnless(HAS_SQLITE_VEC_AND_FASTEMBED, "sqlite_vec extension or fastembed not available in environment")
+    def test_search_semantic_and_hybrid_with_embeddings_and_rrf(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, state_dir = self.setup_store(tmp)
+            mem1 = self.run_add(root, "代码最少原则", "使用尽可能少的代码实现相同功能，优先复用现有接口。")
+            mem2 = self.run_add(root, "系统化调试", "必须遵循复现、缩小范围、单一假设、最小修复。")
+            mem3 = self.run_add(root, "机密工作架构", "内部高密微服务设计方案。", workspace="work", confidentiality="internal")
+            self.assertEqual(self.run_index(root, state_dir, "--embeddings").returncode, 0)
+
+            # 1. Semantic search: no direct lexical overlap ("精简代码架构"), but semantically matches mem1
+            res_semantic = self.run_cli(
+                "search", "精简代码架构",
+                "--root", str(root), "--state-dir", str(state_dir),
+                "--workspace", "personal",
+                "--mode", "semantic", "--json"
+            )
+            self.assertEqual(res_semantic.returncode, 0, res_semantic.stdout + res_semantic.stderr)
+            sem_payload = json.loads(res_semantic.stdout)
+            self.assertEqual(sem_payload["requested_mode"], "semantic")
+            self.assertEqual(sem_payload["effective_mode"], "semantic")
+            self.assertEqual(sem_payload["warnings"], [])
+            sem_results = sem_payload["results"]
+            self.assertTrue(sem_results)
+            self.assertEqual(sem_results[0]["id"], mem1)
+            # Ensure work internal record was NOT leaked into personal search results
+            self.assertNotIn(mem3, [r["id"] for r in sem_results])
+
+            # 2. Hybrid search with RRF
+            res_hybrid = self.run_cli(
+                "search", "代码最少",
+                "--root", str(root), "--state-dir", str(state_dir),
+                "--workspace", "personal",
+                "--mode", "hybrid", "--json"
+            )
+            self.assertEqual(res_hybrid.returncode, 0, res_hybrid.stdout + res_hybrid.stderr)
+            hyb_payload = json.loads(res_hybrid.stdout)
+            self.assertEqual(hyb_payload["requested_mode"], "hybrid")
+            self.assertEqual(hyb_payload["effective_mode"], "hybrid")
+            self.assertEqual(hyb_payload["warnings"], [])
+            hyb_results = hyb_payload["results"]
+            self.assertTrue(hyb_results)
+            self.assertEqual(hyb_results[0]["id"], mem1)
+            # Verify RRF score: item confirmed by both BM25 rank 1 and Vector rank 1 receives ~2x score
+            expected_score = 1.20 / (60 + 1) + 1.20 / (60 + 1)
+            self.assertAlmostEqual(hyb_results[0]["score"], expected_score, places=4)
+
+    @unittest.skipUnless(HAS_SQLITE_VEC_AND_FASTEMBED, "sqlite_vec extension or fastembed not available in environment")
+    def test_search_documents_hybrid_and_semantic_with_embeddings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, state_dir = self.setup_store(tmp)
+            doc_dir = root / "imports" / "chatgpt" / "conversations"
+            doc_dir.mkdir(parents=True, exist_ok=True)
+            (doc_dir / "doc1.md").write_text(
+                "---\ntitle: \"SQLite 向量数据库扩展\"\nworkspace: \"personal\"\nconfidentiality: \"personal\"\n---\nsqlite-vec 原生扩展与轻量级 ONNX 运行时快速检索。\n",
+                encoding="utf-8"
+            )
+            (doc_dir / "doc2.md").write_text(
+                "---\ntitle: \"其他无关记录\"\nworkspace: \"personal\"\nconfidentiality: \"personal\"\n---\n今天天气晴朗适合散步。\n",
+                encoding="utf-8"
+            )
+            self.assertEqual(self.run_index(root, state_dir, "--embeddings").returncode, 0)
+
+            # Search with semantic mode
+            res_sem = self.run_cli(
+                "search", "轻量级向量计算与原生库",
+                "--root", str(root), "--state-dir", str(state_dir),
+                "--kind", "document",
+                "--mode", "semantic", "--json"
+            )
+            self.assertEqual(res_sem.returncode, 0, res_sem.stdout + res_sem.stderr)
+            sem_payload = json.loads(res_sem.stdout)
+            self.assertEqual(sem_payload["effective_mode"], "semantic")
+            self.assertTrue(sem_payload["results"])
+            self.assertEqual(sem_payload["results"][0]["title"], "SQLite 向量数据库扩展")
+
+            # Search with hybrid mode
+            res_hyb = self.run_cli(
+                "search", "SQLite 向量",
+                "--root", str(root), "--state-dir", str(state_dir),
+                "--kind", "document",
+                "--mode", "hybrid", "--json"
+            )
+            self.assertEqual(res_hyb.returncode, 0, res_hyb.stdout + res_hyb.stderr)
+            hyb_payload = json.loads(res_hyb.stdout)
+            self.assertEqual(hyb_payload["effective_mode"], "hybrid")
+            self.assertTrue(hyb_payload["results"])
+            self.assertEqual(hyb_payload["results"][0]["title"], "SQLite 向量数据库扩展")
+            expected_score = 1.00 / (60 + 1) + 1.00 / (60 + 1)
+            self.assertAlmostEqual(hyb_payload["results"][0]["score"], expected_score, places=4)
 
     def test_retrieval_eval_template_exists(self):
         template = REPO_ROOT / "templates" / "retrieval_eval.json"

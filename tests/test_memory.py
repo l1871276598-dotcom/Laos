@@ -2701,6 +2701,29 @@ class ContextPackCommandTests(unittest.TestCase):
             self.assertIn("PDC markdown memory", text)
 
 
+
+def _has_sqlite_vec_support():
+    try:
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        if not hasattr(conn, "enable_load_extension"):
+            conn.close()
+            return False
+        import sqlite_vec
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        conn.execute("SELECT vec_version()")
+        conn.close()
+        import fastembed
+        return True
+    except Exception:
+        return False
+
+
+HAS_SQLITE_VEC_AND_FASTEMBED = _has_sqlite_vec_support()
+
+
 class RetrievalEvaluationCommandTests(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run(
@@ -2806,6 +2829,7 @@ class RetrievalEvaluationCommandTests(unittest.TestCase):
             self.assertTrue(payload["warnings"])
             self.assertIn("falling back to lexical", result.stderr)
 
+    @unittest.skipUnless(HAS_SQLITE_VEC_AND_FASTEMBED, "sqlite_vec extension or fastembed not available in environment")
     def test_index_embeddings_populates_memory_vectors(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, state_dir = self.setup_store(tmp)
@@ -2825,6 +2849,7 @@ class RetrievalEvaluationCommandTests(unittest.TestCase):
             finally:
                 conn.close()
 
+    @unittest.skipUnless(HAS_SQLITE_VEC_AND_FASTEMBED, "sqlite_vec extension or fastembed not available in environment")
     def test_search_semantic_and_hybrid_with_embeddings_and_rrf(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, state_dir = self.setup_store(tmp)
@@ -2870,6 +2895,7 @@ class RetrievalEvaluationCommandTests(unittest.TestCase):
             expected_score = 1.20 / (60 + 1) + 1.20 / (60 + 1)
             self.assertAlmostEqual(hyb_results[0]["score"], expected_score, places=4)
 
+    @unittest.skipUnless(HAS_SQLITE_VEC_AND_FASTEMBED, "sqlite_vec extension or fastembed not available in environment")
     def test_search_documents_hybrid_and_semantic_with_embeddings(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, state_dir = self.setup_store(tmp)

@@ -4,6 +4,38 @@ LAOS is a local-first, auditable, human-governed memory and learning layer for A
 
 **Current release:** [v0.14.0](https://github.com/l1871276598-dotcom/research-agent-memory/releases/tag/v0.14.0) · Python 3.11+ · macOS acceptance target · [MIT](LICENSE)
 
+### ⚡️ 3-Second Killer Demo (Feynman & MrBeast Edition)
+
+Run this one-liner anywhere (zero setup, zero background docker/daemons, runs in < 50ms):
+
+```bash
+python3 src/memory.py demo
+```
+
+Output:
+```text
+================================================================================
+🚀 LAOS 3-Second Killer Demo (Feynman & MrBeast Edition)
+================================================================================
+⏱️  Execution Time: 28ms | Dependencies: 0 external services | Storage: Single-file SQLite
+
+[1] Confidentiality & Boundary Protection
+    ❌ Unprotected Agent : Leaks internal work secrets directly into personal context
+    ✅ LAOS Protected   : Fail-closed isolation (zero leaks, work secrets strictly excluded)
+
+[2] Review Gate & Hallucination Interception
+    ❌ Unprotected Agent : Blindly overwrites active memory rules without audit or provenance
+    ✅ LAOS Protected   : Quarantined in candidate status (requires explicit Review Gate acceptance)
+
+[3] Native Zero-Daemon Retrieval
+    ❌ Unprotected Agent : Requires running heavy background vector database / Docker services
+    ✅ LAOS Protected   : Single-file SQLite FTS5 + sqlite-vec C extension with RRF score fusion
+
+================================================================================
+💡 Summary: LAOS blocks leaks & hallucinations before they corrupt your agents.
+================================================================================
+```
+
 [Reproducible local demo](#reproducible-local-demo) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## Why LAOS

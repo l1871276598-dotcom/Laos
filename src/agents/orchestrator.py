@@ -297,12 +297,18 @@ class ReviewAgent(BaseAgent):
                 raise ValueError("workspace must be personal or work")
         else:
             workspace = self.reviewer_profile.workspace
-        output = self.gate.review(
-            action,
-            candidate_id,
-            reason=reason,
-            workspace=workspace,
-        )
+        if action == "auto_low_risk":
+            output = self.gate.auto_review_low_risk(
+                candidate_id,
+                reason=reason or "Fast-path auto-review for low-risk verified candidate",
+            )
+        else:
+            output = self.gate.review(
+                action,
+                candidate_id,
+                reason=reason,
+                workspace=workspace,
+            )
 
         return self.result(task, output)
 

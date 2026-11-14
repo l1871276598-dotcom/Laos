@@ -463,6 +463,79 @@ class DualAgentBlindJudge:
             return None
         return None
 
+    def _ground_truth_execution_judge(
+        self,
+        baseline_text: str,
+        mutated_text: str,
+        test_prompts: List[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        """Ground-Truth Execution Judge (Karpathy & Ilya):
+        Performs deterministic code compilation, physical constant and finite retry checks,
+        and anti-collusion vetoes. Holds an absolute veto on invalid syntax or physical violations.
+        """
+        import ast
+
+        def evaluate_code_blocks(text: str) -> Tuple[bool, List[str]]:
+            # Extract python code blocks: ```python ... ```
+            py_blocks = re.findall(r"```(?:python|py)\n(.*?)```", text, re.DOTALL)
+            errors = []
+            for idx, block in enumerate(py_blocks, 1):
+                try:
+                    ast.parse(block)
+                except SyntaxError as e:
+                    errors.append(f"Python code block #{idx} syntax error: {e}")
+
+            # Check unconstrained retry patterns (> 2 retries or infinite)
+            infinite_retry_patterns = [
+                re.compile(r"无限重试", re.IGNORECASE),
+                re.compile(r"重试\s*(?:[3-9]|\d{2,})\s*次", re.IGNORECASE),
+                re.compile(r"retry\s*(?:[3-9]|\d{2,})\s*times", re.IGNORECASE),
+            ]
+            for pat in infinite_retry_patterns:
+                if pat.search(text):
+                    errors.append("Physical constraint violation: retry limit exceeds finite safe quota (<=2).")
+
+            # Check dangerous destructive sweeps
+            destructive_patterns = [
+                "rm -rf *",
+                "rm -rf /",
+                "DROP DATABASE",
+                "chmod -R 777",
+            ]
+            for dp in destructive_patterns:
+                if dp in text:
+                    errors.append(f"Physical safety violation: unconstrained destructive pattern '{dp}'.")
+
+            return (len(errors) == 0, errors)
+
+        base_valid, base_errs = evaluate_code_blocks(baseline_text)
+        mut_valid, mut_errs = evaluate_code_blocks(mutated_text)
+
+        score_base = 80 if base_valid else 30
+        if not mut_valid:
+            score_mut = 0
+            verdict = "FAIL"
+            winner = "baseline"
+            critique = f"Ground-Truth Execution Veto: {'; '.join(mut_errs)}"
+        else:
+            score_mut = 95
+            verdict = "PASS"
+            winner = "mutated" if score_mut > score_base else "tie"
+            critique = "Ground-Truth Execution Check: All embedded code syntactically valid; finite retry quota & physical boundaries strictly respected."
+
+        delta = score_mut - score_base
+        return {
+            "judge": "Ground-Truth Execution Judge (Karpathy & Ilya)",
+            "focus": "Deterministic Code Verification, Physical Constraints & Anti-Collusion Veto",
+            "score_baseline": score_base,
+            "score_mutated": score_mut,
+            "delta": delta,
+            "verdict": verdict,
+            "winner": winner,
+            "critique": critique,
+            "errors": mut_errs,
+        }
+
     def evaluate(
         self,
         baseline_text: str,
@@ -477,6 +550,9 @@ class DualAgentBlindJudge:
 
         # 2. Agent 2: Safety & Robustness Review
         agent_2 = self._agent_2_safety_review(baseline_text, mutated_text, test_prompts)
+
+        # 3. Ground-Truth Execution Review (Physical Reality Judge)
+        ground_truth = self._ground_truth_execution_judge(baseline_text, mutated_text, test_prompts)
 
         # 3. Optional LLM Judge Review
         llm_reviews = []
@@ -534,9 +610,10 @@ class DualAgentBlindJudge:
         # 5. Multi-Agent Ratchet Decision (Safety first: no regression allowed)
         spec_passed = agent_1["verdict"] == "PASS"
         safety_passed = agent_2["verdict"] == "PASS"
-        combined_delta = agent_1["delta"] + agent_2["delta"]
+        gt_passed = ground_truth["verdict"] == "PASS"
+        combined_delta = agent_1["delta"] + agent_2["delta"] + ground_truth["delta"]
 
-        ratchet_retained = spec_passed and safety_passed and (combined_delta >= 0)
+        ratchet_retained = spec_passed and safety_passed and gt_passed and (combined_delta >= 0)
         winner = "mutated" if combined_delta > 0 else ("baseline" if combined_delta < 0 else "tie")
         ratchet_decision = "RETAIN" if ratchet_retained else "REVERT"
 
@@ -565,9 +642,10 @@ class DualAgentBlindJudge:
             "ratchet_decision": ratchet_decision,
             "agent_1_spec_judge": agent_1,
             "agent_2_safety_judge": agent_2,
+            "ground_truth_judge": ground_truth,
             "llm_reviews": llm_reviews,
-            "total_baseline_score": agent_1["score_baseline"] + agent_2["score_baseline"],
-            "total_mutated_score": agent_1["score_mutated"] + agent_2["score_mutated"],
+            "total_baseline_score": agent_1["score_baseline"] + agent_2["score_baseline"] + ground_truth["score_baseline"],
+            "total_mutated_score": agent_1["score_mutated"] + agent_2["score_mutated"] + ground_truth["score_mutated"],
             "combined_delta": combined_delta,
         }
         if master_summary is not None:

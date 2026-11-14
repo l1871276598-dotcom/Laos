@@ -2946,6 +2946,31 @@ class RetrievalEvaluationCommandTests(unittest.TestCase):
         self.assertIn("cases", data)
 
 
+class DemoCommandTests(unittest.TestCase):
+    def run_cli(self, *args):
+        return subprocess.run(
+            [sys.executable, str(MEMORY_CLI), *args],
+            capture_output=True,
+            text=True,
+            cwd=REPO_ROOT,
+        )
+
+    def test_demo_command_text(self):
+        result = self.run_cli("demo")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("LAOS", result.stdout)
+        self.assertIn("Unprotected Agent", result.stdout)
+        self.assertIn("LAOS Protected", result.stdout)
+
+    def test_demo_command_json(self):
+        result = self.run_cli("demo", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["status"], "success")
+        self.assertIn("scenarios", data)
+        self.assertTrue(len(data["scenarios"]) >= 3)
+
+
 class ExportCommandTests(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run(

@@ -1,8 +1,48 @@
 import argparse
 import importlib
+from enum import Enum
 from pathlib import Path
+from typing import Any, Dict
 
 from .authority import AuthorityError, AuthorityStore, DECISION_ACTIONS, ReviewerProfile
+
+
+class RiskTier(str, Enum):
+    LOW = "LOW"
+    HIGH = "HIGH"
+
+
+def assess_risk(record: Dict[str, Any]) -> RiskTier:
+    """Assess operational risk of a candidate memory record based on blast radius."""
+    if not isinstance(record, dict):
+        return RiskTier.HIGH
+
+    # Elevated confidentiality or work-domain changes are strictly HIGH risk
+    conf = record.get("confidentiality", "personal")
+    ws = record.get("workspace", "personal")
+    if conf in ("internal", "restricted") or ws != "personal":
+        return RiskTier.HIGH
+
+    # Procedure and policy rules alter system execution logic -> HIGH risk
+    mem_type = record.get("type", "")
+    if mem_type in ("procedure", "policy"):
+        return RiskTier.HIGH
+
+    # Dangerous command / shell execution patterns in content
+    content = record.get("content", "")
+    if isinstance(content, str):
+        dangerous_patterns = [
+            "rm -rf", "DROP TABLE", "DELETE FROM", "--force", "eval(", "exec(",
+            "chmod 777", "curl ", "wget ", "> /dev/", "mkfs"
+        ]
+        if any(pat in content for pat in dangerous_patterns):
+            return RiskTier.HIGH
+
+    # Uncertain confidence
+    if record.get("confidence") == "uncertain":
+        return RiskTier.HIGH
+
+    return RiskTier.LOW
 
 
 REVIEW_ACTIONS = DECISION_ACTIONS
@@ -104,6 +144,25 @@ class ReviewGate:
             "action": decision["action"],
             "expected_active_generation": decision["expected_active_generation"],
         }
+
+    def assess_candidate_risk(self, candidate_id: str) -> RiskTier:
+        """Inspect and assess candidate risk tier."""
+        record = self.backend._candidate_record(self.root, candidate_id)
+        return assess_risk(record)
+
+    def auto_review_low_risk(
+        self,
+        candidate_id: str,
+        reason: str = "Fast-path auto-review for low-risk verified candidate",
+    ) -> Dict[str, Any]:
+        """Fast-path auto-approval exclusively for verified low-risk candidates."""
+        tier = self.assess_candidate_risk(candidate_id)
+        if tier == RiskTier.HIGH:
+            raise AuthorityError(
+                "high_risk_requires_human_approval",
+                f"Candidate {candidate_id} is evaluated as HIGH risk and strictly requires human approval.",
+            )
+        return self.review("accept", candidate_id, reason=reason)
 
     def activate(self, decision_id, expected_active_generation):
         """Apply one immutable decision through the generation CAS boundary."""

@@ -146,6 +146,40 @@ class ProcedureOptimizerTests(unittest.TestCase):
         self.assertFalse(result["ratchet_retained"])
         self.assertEqual(result["ratchet_decision"], "REVERT")
 
+    def test_ground_truth_execution_judge_vetoes_broken_syntax(self):
+        judge = DualAgentBlindJudge()
+        prompts = generate_test_prompts("Test", "Some baseline content")
+        broken_code_mutated = (
+            "### 1. 适用场景\n适用生产部署。\n\n"
+            "### 2. 标准操作执行步骤\n"
+            "1. 执行脚本：\n"
+            "```python\ndef broken(:\n    pass\n```\n\n"
+            "### 3. 失败分支与故障恢复\n重试不超过2次。\n\n"
+            "### 4. 禁止动作与红线黑名单\n严禁删除数据。\n\n"
+            "### 5. 诚实边界与失效宣告\n单机内存低于1GB失效。\n"
+        )
+        result = judge.evaluate("Some baseline content", broken_code_mutated, prompts)
+        self.assertIn("ground_truth_judge", result)
+        self.assertEqual(result["ground_truth_judge"]["verdict"], "FAIL")
+        self.assertEqual(result["ratchet_decision"], "REVERT")
+
+    def test_ground_truth_execution_judge_passes_valid_code(self):
+        judge = DualAgentBlindJudge()
+        prompts = generate_test_prompts("Test", "Some baseline content")
+        valid_code_mutated = (
+            "### 1. 适用场景\n适用生产部署。\n\n"
+            "### 2. 标准操作执行步骤\n"
+            "1. 执行脚本：\n"
+            "```python\ndef run_step():\n    return 0\n```\n\n"
+            "### 3. 失败分支与故障恢复\n有限重试配额为1次，失败切换fallback。\n\n"
+            "### 4. 禁止动作与红线黑名单\n严禁删除生产数据库。\n\n"
+            "### 5. 诚实边界与失效宣告\n单机内存低于1GB时宣告失效并停机。\n"
+        )
+        result = judge.evaluate("Some baseline content", valid_code_mutated, prompts)
+        self.assertIn("ground_truth_judge", result)
+        self.assertEqual(result["ground_truth_judge"]["verdict"], "PASS")
+        self.assertGreaterEqual(result["ground_truth_judge"]["score_mutated"], 70)
+
     def test_optimizer_end_to_end_candidate_creation(self):
         with tempfile.TemporaryDirectory() as temp_root, tempfile.TemporaryDirectory() as temp_state:
             root = Path(temp_root)

@@ -1271,6 +1271,73 @@ class ReviewGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "state_dir is required"):
             ReviewGate(self.root).review("merge", candidate_id)
 
+    def test_assess_candidate_risk_and_auto_review_low_risk(self):
+        from review.gate import ReviewGate, RiskTier
+        from review.authority import AuthorityError
+
+        gate = ReviewGate(self.root, self.state)
+
+        # 1. Low-risk candidate: personal workspace, personal confidentiality, confirmed confidence
+        cand_low = self.create_candidate(
+            title="Safe documentation observation",
+            workspace="personal",
+            confidentiality="personal",
+            confidence="confirmed",
+            content="Documentation update for local README.",
+        )
+        self.assertEqual(gate.assess_candidate_risk(cand_low), RiskTier.LOW)
+
+        # Fast-path auto review succeeds for low risk
+        decision = gate.auto_review_low_risk(cand_low)
+        self.assertEqual(decision["status"], "decided")
+        self.assertEqual(decision["action"], "accept")
+
+        # 2. High-risk candidate: internal confidentiality
+        cand_high_conf = self.create_candidate(
+            title="Internal confidential spec",
+            workspace="work",
+            confidentiality="internal",
+            confidence="confirmed",
+            content="Proprietary business secrets.",
+        )
+        self.assertEqual(gate.assess_candidate_risk(cand_high_conf), RiskTier.HIGH)
+        with self.assertRaises(AuthorityError) as ctx:
+            gate.auto_review_low_risk(cand_high_conf)
+        self.assertEqual(ctx.exception.code, "high_risk_requires_human_approval")
+
+        # 3. High-risk candidate: dangerous shell execution command
+        cand_high_cmd = self.create_candidate(
+            title="Destructive maintenance rule",
+            workspace="personal",
+            confidentiality="personal",
+            confidence="confirmed",
+            content="Run rm -rf /tmp/data to clean up.",
+        )
+        self.assertEqual(gate.assess_candidate_risk(cand_high_cmd), RiskTier.HIGH)
+        with self.assertRaises(AuthorityError) as ctx:
+            gate.auto_review_low_risk(cand_high_cmd)
+        self.assertEqual(ctx.exception.code, "high_risk_requires_human_approval")
+
+    def test_review_agent_auto_low_risk(self):
+        cand = self.create_candidate(
+            title="Safe doc note",
+            workspace="personal",
+            confidentiality="personal",
+            confidence="confirmed",
+            content="Simple content",
+        )
+        agent = self.make_review_agent()
+        task = {
+            "type": "memory.review",
+            "input": {
+                "action": "auto_low_risk",
+                "candidate_id": cand,
+            },
+        }
+        res = agent.run(task, None)
+        self.assertEqual(res["output"]["status"], "decided")
+        self.assertEqual(res["output"]["action"], "accept")
+
 
 class PartitionIsolationTests(unittest.TestCase):
     def setUp(self):

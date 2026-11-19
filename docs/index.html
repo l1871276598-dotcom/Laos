@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LAOS — 本地优先、可审计的 AI 记忆层</title>
+<meta name="description" content="LAOS 是一个本地优先、可审计、人工审核受控的 Agent 记忆与学习层。Local-first, auditable, human-governed memory and learning layer for AI agents.">
+<style>
+  :root { --bg:#0b1e3a; --card:#12294d; --line:#24466e; --text:#e8eef7; --muted:#9db4d0; --accent:#ffd21f; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); line-height:1.7; }
+  main { max-width:760px; margin:0 auto; padding:56px 20px 64px; }
+  .badge { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:2px 12px; margin:0 6px 6px 0; color:var(--muted); font-size:13px; }
+  h1 { font-size:44px; line-height:1.2; margin:12px 0 8px; letter-spacing:2px; }
+  h1 span { color:var(--accent); }
+  .tagline { font-size:20px; margin:0 0 8px; }
+  .en { color:var(--muted); font-size:15px; margin:0 0 28px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px 24px; margin:20px 0; }
+  h2 { font-size:19px; margin:0 0 10px; }
+  ul { margin:8px 0 0; padding-left:20px; }
+  li { margin:6px 0; }
+  li b { color:#fff; }
+  a { color:var(--accent); }
+  .cta { display:inline-block; background:var(--accent); color:#111; font-weight:700; text-decoration:none; border-radius:10px; padding:12px 22px; margin:6px 10px 6px 0; }
+  .cta.ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  code { background:#0a1830; border:1px solid var(--line); border-radius:6px; padding:1px 7px; font-size:14px; }
+  footer { color:var(--muted); font-size:13px; margin-top:32px; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <span class="badge">v0.14.0</span>
+    <span class="badge">Python 3.11+</span>
+    <span class="badge">macOS</span>
+    <span class="badge">MIT 开源</span>
+  </div>
+  <h1>LAOS<span>.</span></h1>
+  <p class="tagline">本地优先、可审计、人工审核的 AI 记忆层</p>
+  <p class="en">Local-first, auditable, human-governed memory and learning layer for AI agents.</p>
+  <p>LAOS 把结构化记忆、项目上下文、任务结果、反思和可复用原则，统一存放在你自己控制的本地文件与可重建索引里，供 GPT、Codex、Claude、本地模型和其他 Agent 复用——复用之前，先过人工审核。</p>
+  <p>
+    <a class="cta" href="https://github.com/l1871276598-dotcom/Laos">在 GitHub 上查看 LAOS</a>
+    <a class="cta ghost" href="https://github.com/l1871276598-dotcom/Laos#readme">读 README</a>
+  </p>
+
+  <section>
+    <h2>为什么是 LAOS</h2>
+    <ul>
+      <li><b>本地所有：</b>权威记忆留在你自己控制的文件里，派生索引可以重建，不依赖外部服务。</li>
+      <li><b>人工审核：</b>Agent 只能创建候选记忆（candidate），只有明确的 Review Gate 决定才能接受为正式记忆。</li>
+      <li><b>可审计：</b>记忆与学习产物保留可追溯的来源证据和确定性处理路径。</li>
+      <li><b>模型无关：</b>GPT、Codex、Claude、本地模型共用同一套受控知识层。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>现在能做的事（v0.14.0）</h2>
+    <ul>
+      <li>Memory Core：Markdown / JSONL 权威数据源 + 单文件 SQLite，零外部服务依赖。</li>
+      <li>混合检索：sqlite-vec 原生向量扩展，BM25 + 向量 RRF 混合打分。</li>
+      <li>统一 12 Agent JSON CLI：导入、记忆、搜索、审核、上下文、反思、策略、循环协调等。</li>
+      <li>确定性学习链：finalize → 反思 → 建议策略 → 生成候选 → Review Gate。</li>
+      <li>MCP 接入：通过 FastMCP 向 Claude Code / Cursor / Antigravity 提供本地 Agent 能力。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>诚实边界</h2>
+    <ul>
+      <li>不自动批准任何候选记忆，不自动修改提示词、代码或行为。</li>
+      <li>没有浏览器侧被动采集，没有无人值守后台重试，没有多用户认证。</li>
+      <li>没有 GUI、Web 前端或桌面应用；当前验收平台是 macOS，运行在本地、可信操作者边界内。</li>
+    </ul>
+    <p>一句话：好用，但不完美——能用的地方说清楚，不能的地方也不藏着。</p>
+  </section>
+
+  <section>
+    <h2>快速开始</h2>
+    <p>仓库根目录，Python 3.11+，本地可复现演示全程不联网、不调模型 API，演示结束自动清理临时文件。完整步骤见仓库 README 的 “Reproducible local demo”。</p>
+    <p><code>git clone https://github.com/l1871276598-dotcom/Laos.git</code></p>
+  </section>
+
+  <footer>
+    <p>LAOS · Local Agent Operating System · v0.14.0 · MIT License</p>
+    <p>抖音：Ai工具箱（分享 AI 工具使用）· GitHub：l1871276598-dotcom/Laos</p>
+  </footer>
+</main>
+</body>
+</html>
